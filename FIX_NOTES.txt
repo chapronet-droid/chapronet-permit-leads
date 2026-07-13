@@ -1,0 +1,14 @@
+ChaproNet Chicago Permit Lead Generator - Fixed Version
+
+Fixes included:
+1. Removed accidental leading backslash characters from Windows batch files.
+2. Removed the invalid zip_code filter from the Chicago Building Permits API query.
+3. Uses South Side/Southwest Side community-area numbers for geographic targeting.
+4. Applies geography and minimum-cost filters locally after downloading records.
+5. Displays the City's API error response when a request fails.
+
+Install:
+1. Extract the entire ZIP.
+2. Double-click install_windows.bat.
+3. After installation completes, double-click run_daily.bat.
+4. Open the output folder and then chapronet_permit_leads.xlsx.

@@ -1,0 +1,21 @@
+CHAPRONET DASHBOARD — PHASE 2.2 REQUEST SCHEMA FIX
+
+This patch fixes the Jobber error:
+  Field is not defined on RequestCreateInput
+
+WHAT CHANGED
+- The integration now asks Jobber which fields exist on RequestCreateInput.
+- It submits only fields supported by your active Jobber API version.
+- It automatically selects the valid long-text field when available.
+- It includes safer diagnostics if Jobber changes the request schema again.
+
+INSTALL
+1. Close the black run_dashboard terminal window.
+2. Extract this ZIP directly into:
+   Downloads\ChaproNet_Daily_Lead_System_v2\chapronet_permit_leads
+3. Replace src\jobber_integration.py when prompted.
+4. Double-click run_dashboard.bat.
+5. Test with a different permit if possible, because the previous failed attempt
+   already created a client in Jobber before the request failed.
+
+No reinstall is required. Your .env and saved OAuth tokens remain unchanged.

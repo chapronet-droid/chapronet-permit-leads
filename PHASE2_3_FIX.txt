@@ -1,0 +1,22 @@
+CHAPRONET DASHBOARD — PHASE 2.3 JOBBER REQUEST FIX
+
+This patch fixes the current error where Jobber expects "assessment" to be a
+nested input object instead of plain text.
+
+WHAT CHANGED
+- The request is now created using only the stable fields:
+  clientId, propertyId, and title.
+- Permit intelligence stays saved in the ChaproNet dashboard.
+- A later update can add the permit details to Jobber using the correct note or
+  assessment mutation after that schema is confirmed.
+
+INSTALL
+1. Close the black run_dashboard terminal window.
+2. Extract this ZIP directly into:
+   Downloads\ChaproNet_Daily_Lead_System_v2\chapronet_permit_leads
+3. Replace src\jobber_integration.py when prompted.
+4. Double-click run_dashboard.bat.
+5. Test with a DIFFERENT permit because prior failed attempts may already have
+   created Jobber clients.
+
+No reinstall is required. Your .env and OAuth tokens are not changed.

@@ -1,0 +1,37 @@
+CHAPRONET LEAD INTELLIGENCE — PHASE 2
+
+WHAT THIS UPDATE ADDS
+- Secure local Jobber OAuth authorization
+- Access-token and rotating refresh-token storage in state\jobber_tokens.json
+- Automatic token refresh
+- Jobber connection status in the dashboard
+- Push to Jobber button for qualified permits
+- Creates a Jobber company client and property
+- Creates a Jobber request containing the permit intelligence
+- Prevents accidental pushes by requiring confirmation
+- Marks successfully pushed permits as Ready to Contact
+
+INSTALL
+1. Close the black dashboard terminal window if it is running.
+2. Extract this ZIP directly into:
+   Downloads\ChaproNet_Daily_Lead_System_v2\chapronet_permit_leads
+3. Allow Windows to merge/replace the src files.
+4. Double-click install_phase2.bat.
+5. Double-click run_dashboard.bat.
+6. Select a lead and click Start Jobber connection.
+7. Approve access in Jobber.
+8. Return to the dashboard and click Finish connection after approval.
+9. Review a permit, complete any contact fields, check the confirmation box,
+   then click Push lead to Jobber.
+
+SECURITY
+- Never upload .env or state\jobber_tokens.json.
+- Jobber tokens stay on this computer.
+- The dashboard never displays the client secret.
+- If the computer is shared, protect the Windows user account with a password.
+
+IMPORTANT
+The first live push should be a test permit that you are comfortable deleting from
+Jobber afterward. Jobber can change GraphQL input fields between API versions.
+If Jobber rejects the request, the dashboard shows technical details that can be
+used to make a small compatibility adjustment without exposing credentials.

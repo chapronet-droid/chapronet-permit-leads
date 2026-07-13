@@ -1,0 +1,25 @@
+CHAPRONET PHASE 3A — AUTOMATIC CONFLUENCE SPACE ID
+
+This update allows CONFLUENCE_SPACE_ID to remain blank. The dashboard resolves
+the numeric ID automatically from your Confluence space key: MFS.
+
+INSTALL
+1. Close the black run_dashboard terminal window.
+2. Extract this ZIP into:
+   Downloads\ChaproNet_Daily_Lead_System_v2\chapronet_permit_leads
+3. Replace src\confluence_integration.py.
+4. In .env, confirm these lines exist:
+
+CONFLUENCE_SITE_URL=https://chapronet-team.atlassian.net
+CONFLUENCE_EMAIL=YOUR_ATLASSIAN_EMAIL
+CONFLUENCE_API_TOKEN=YOUR_API_TOKEN
+CONFLUENCE_SPACE_KEY=MFS
+CONFLUENCE_SPACE_ID=
+CONFLUENCE_PARENT_PAGE_ID=7077889
+
+5. Save .env.
+6. Double-click run_dashboard.bat.
+7. The sidebar should show Confluence connected.
+8. Test Create Confluence Page on one permit.
+
+Do not share your API token.

@@ -1,0 +1,28 @@
+CHAPRONET DASHBOARD — PHASE 2.5 FALSE "RECORDED REQUEST" FIX
+
+ROOT CAUSE
+Blank Jobber request IDs were being read by pandas as NaN. The dashboard then
+converted NaN into the text "nan", which is non-empty, so every permit appeared
+to have a recorded Jobber request.
+
+THIS FIX
+- Treats NaN/None/NaT as blank values.
+- Stops untouched permits from showing as already pushed.
+- Adds "Clear this permit's Jobber record" for requests manually deleted in Jobber.
+- Keeps the existing global repair tool in the sidebar.
+
+INSTALL
+1. Close the black run_dashboard terminal window.
+2. Extract this ZIP directly into:
+   Downloads\ChaproNet_Daily_Lead_System_v2\chapronet_permit_leads
+3. Replace src\dashboard.py when prompted.
+4. Double-click run_dashboard.bat.
+
+AFTER INSTALL
+- Other permits should once again show the review checkbox and Push button.
+- The one permit you successfully created will still show as recorded.
+- Since you deleted that request in Jobber, click:
+  "Clear this permit's Jobber record"
+  on that specific permit before testing it again.
+
+No reinstall is required. This does not alter Jobber, .env, or OAuth tokens.

@@ -1,0 +1,24 @@
+CHAPRONET DASHBOARD — PHASE 2.1 JOBBER SCHEMA FIX
+
+This patch fixes:
+  Field 'nodes' doesn't exist on type 'Property'
+
+WHY IT HAPPENED
+The current Jobber GraphQL schema returns Client.properties as a direct list of
+Property objects. The prior code treated it as a Relay-style connection with
+properties.nodes.
+
+INSTALL
+1. Close the black run_dashboard terminal window.
+2. Extract this ZIP directly into:
+   Downloads\ChaproNet_Daily_Lead_System_v2\chapronet_permit_leads
+3. Click Replace when Windows asks about:
+   src\jobber_integration.py
+4. Double-click run_dashboard.bat.
+5. Select the same test permit, check the review box, and click Push lead to Jobber.
+
+No reinstall is required. Your .env file and saved Jobber tokens are not changed.
+
+If Jobber shows a different GraphQL message after this fix, expand Technical
+details and share only the error text. Do not share tokens, authorization codes,
+Client ID, or Client Secret.

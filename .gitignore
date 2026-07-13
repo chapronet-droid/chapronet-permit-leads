@@ -1,0 +1,8 @@
+.env
+.venv/
+state/
+output/
+__pycache__/
+*.pyc
+*.db
+*.sqlite

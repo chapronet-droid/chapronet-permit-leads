@@ -1,0 +1,41 @@
+CHAPRONET LEAD INTELLIGENCE — PHASE 3A CONFLUENCE
+
+WHAT THIS ADDS
+- Tests your Confluence connection from the dashboard
+- Creates a professional permit research page
+- Stores the page URL against the permit
+- Prevents duplicate Confluence pages
+- Provides an Open Confluence Page button
+- Adds a local clear function if you manually delete the page
+
+INSTALL
+1. Close the black run_dashboard terminal window.
+2. Extract this ZIP directly into:
+   Downloads\ChaproNet_Daily_Lead_System_v2\chapronet_permit_leads
+3. Replace files in src when prompted.
+4. Double-click install_phase3.bat once.
+5. Add the following lines to your existing .env file:
+
+CONFLUENCE_SITE_URL=https://chapronet-team.atlassian.net
+CONFLUENCE_EMAIL=your_atlassian_email
+CONFLUENCE_API_TOKEN=your_atlassian_api_token
+CONFLUENCE_SPACE_ID=your_numeric_space_id
+CONFLUENCE_PARENT_PAGE_ID=your_numeric_parent_page_id
+
+6. Save .env and close Notepad.
+7. Double-click run_dashboard.bat.
+8. Confirm the sidebar says Confluence connected.
+9. Test one permit by clicking Create Confluence Page.
+
+SECURITY
+Never upload or share .env. The Atlassian API token is equivalent to a password
+for the permissions granted to your Atlassian account.
+
+HOW TO FIND THE PARENT PAGE ID
+Open the intended parent page in Confluence. The numeric page ID may appear in
+the URL, or in Page Information. Use the parent page where all permit lead pages
+should be created.
+
+HOW TO FIND THE SPACE ID
+Use Confluence space settings or the Confluence REST API. The Space ID is
+numeric and is different from the space key.

@@ -1,0 +1,151 @@
+company:
+  name: ChaproNet
+  market: Chicago low-voltage, CCTV, access control, intercom, networking and A/V
+
+source:
+  domain: data.cityofchicago.org
+  dataset_id: ydr8-5enu
+  lookback_days: 7
+  page_size: 1000
+  max_pages: 50
+  timeout_seconds: 45
+
+geography:
+  # South Side and Southwest Side community areas. The permit dataset does not
+  # provide a project ZIP-code field, so community_area is used for targeting.
+  zip_codes: []
+  wards: []
+  community_areas:
+    - "35"
+    - "36"
+    - "37"
+    - "38"
+    - "39"
+    - "40"
+    - "41"
+    - "42"
+    - "43"
+    - "44"
+    - "45"
+    - "46"
+    - "47"
+    - "48"
+    - "49"
+    - "50"
+    - "51"
+    - "52"
+    - "53"
+    - "54"
+    - "55"
+    - "58"
+    - "59"
+    - "60"
+    - "61"
+    - "62"
+    - "63"
+    - "64"
+    - "65"
+    - "66"
+    - "67"
+    - "68"
+    - "69"
+    - "70"
+    - "71"
+    - "72"
+    - "73"
+    - "74"
+    - "75"
+
+filters:
+  minimum_reported_cost: 25000
+  exclude_permit_statuses:
+    - CANCELLED
+    - REVOKED
+    - EXPIRED
+    - SUSPENDED
+  exclude_permit_types:
+    - PERMIT - SIGNS
+    - PERMIT - WRECKING/DEMOLITION
+
+scoring:
+  high_value_cost: 250000
+  medium_value_cost: 100000
+  high_value_points: 30
+  medium_value_points: 20
+  base_cost_points: 10
+  new_construction_points: 25
+  renovation_points: 18
+  commercial_keyword_points: 20
+  multifamily_keyword_points: 18
+  low_voltage_keyword_points: 28
+  target_work_keyword_points: 15
+  recent_2_days_points: 12
+  recent_7_days_points: 6
+  south_side_points: 8
+
+keywords:
+  commercial:
+    - commercial
+    - office
+    - retail
+    - restaurant
+    - school
+    - daycare
+    - church
+    - warehouse
+    - medical
+    - clinic
+    - hotel
+    - bank
+    - store
+    - business
+    - tenant buildout
+    - tenant build-out
+  multifamily:
+    - apartment
+    - dwelling units
+    - multi-family
+    - multifamily
+    - condominium
+    - condo
+    - residential units
+    - mixed use
+    - mixed-use
+  low_voltage:
+    - low voltage
+    - fire alarm
+    - burglar alarm
+    - security
+    - access control
+    - camera
+    - cctv
+    - intercom
+    - communication equipment
+    - data cabling
+    - structured cabling
+    - network
+    - audio
+  target_work:
+    - interior alteration
+    - renovation
+    - buildout
+    - build-out
+    - new construction
+    - electrical work
+    - doors
+    - entry
+    - lobby
+    - common area
+
+output:
+  directory: output
+  excel_filename: chapronet_permit_leads.xlsx
+  csv_filename: chapronet_permit_leads.csv
+  top_leads_filename: chapronet_top_leads.csv
+  jobber_filename: jobber_ready_leads.csv
+  minimum_score_for_top_lead: 35
+  maximum_top_leads: 100
+
+state:
+  directory: state
+  seen_permits_filename: seen_permits.json

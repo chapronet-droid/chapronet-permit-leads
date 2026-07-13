@@ -1,0 +1,27 @@
+CHAPRONET DASHBOARD — PHASE 2.4 LOCAL STATUS REPAIR
+
+This repair addresses:
+- Every lead incorrectly showing "already pushed to Jobber"
+- No corresponding clients or requests visible in Jobber
+
+ROOT CAUSE
+The earlier dashboard used a generic Jobber URL as proof that a lead had been
+created. That was not reliable. This update records the exact Jobber client ID
+and request ID and only marks a lead as pushed when a request ID exists.
+
+INSTALL
+1. Close the black run_dashboard terminal window.
+2. Extract this ZIP directly into:
+   Downloads\ChaproNet_Daily_Lead_System_v2\chapronet_permit_leads
+3. Replace both files when prompted:
+   src\dashboard.py
+   src\jobber_integration.py
+4. Double-click run_dashboard.bat.
+5. In the left sidebar, open "Repair local Jobber status".
+6. Check "Clear all locally recorded Jobber push flags".
+7. Click "Clear incorrect Jobber flags".
+8. Test ONE permit only.
+9. Confirm the client and request in Jobber before pushing another lead.
+
+This repair clears only local dashboard flags. It does not delete anything from
+Jobber and does not change .env or OAuth tokens.
