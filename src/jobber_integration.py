@@ -24,6 +24,8 @@ except ImportError:
 AUTH_URL = "https://api.getjobber.com/api/oauth/authorize"
 TOKEN_URL = "https://api.getjobber.com/api/oauth/token"
 GRAPHQL_URL = "https://api.getjobber.com/api/graphql"
+GIST_API_URL = "https://api.github.com/gists"
+GIST_TOKEN_FILENAME = "jobber_tokens.json"
 
 
 class JobberError(RuntimeError):
@@ -69,8 +71,69 @@ class JobberClient:
             "2025-04-16",
         ).strip()
         self.refresh_token = get_setting("JOBBER_REFRESH_TOKEN")
+        self.github_token = get_setting("GITHUB_TOKEN")
+        self.github_gist_id = get_setting("GITHUB_GIST_ID")
+
+    def _gist_configured(self) -> bool:
+        return bool(self.github_token and self.github_gist_id)
+
+    def _gist_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.github_token}",
+            "Accept": "application/vnd.github+json",
+        }
+
+    def _gist_read(self) -> dict[str, Any] | None:
+        """Read the token payload from the persistent gist store.
+
+        Deployments like Streamlit Cloud wipe local disk on every restart, so
+        the gist (not the local file) is the durable source of truth once
+        GITHUB_TOKEN/GITHUB_GIST_ID are configured.
+        """
+        if not self._gist_configured():
+            return None
+        try:
+            response = requests.get(
+                f"{GIST_API_URL}/{self.github_gist_id}",
+                headers=self._gist_headers(),
+                timeout=15,
+            )
+            if not response.ok:
+                return None
+            files = response.json().get("files", {})
+            content = (files.get(GIST_TOKEN_FILENAME) or {}).get("content")
+            if not content:
+                return None
+            return json.loads(content)
+        except Exception:
+            return None
+
+    def _gist_write(self, data: dict[str, Any]) -> None:
+        if not self._gist_configured():
+            return
+        try:
+            requests.patch(
+                f"{GIST_API_URL}/{self.github_gist_id}",
+                headers=self._gist_headers(),
+                json={
+                    "files": {
+                        GIST_TOKEN_FILENAME: {
+                            "content": json.dumps(data, indent=2)
+                        }
+                    }
+                },
+                timeout=15,
+            )
+        except Exception:
+            # A failed persistence write should not break the auth flow the
+            # user is actively completing; the local file still has it.
+            pass
 
     def _read_tokens(self) -> dict[str, Any]:
+        remote = self._gist_read()
+        if remote:
+            return remote
+
         if not self.token_path.exists():
             if self.refresh_token:
                 return {"refresh_token": self.refresh_token}
@@ -90,12 +153,13 @@ class JobberClient:
             tokens["refresh_token"] = self.refresh_token
 
         return tokens
-    
+
     def _save_tokens(self, data: dict[str, Any]) -> None:
         current = self._read_tokens()
         current.update(data)
         current["saved_at"] = int(time.time())
         self.token_path.write_text(json.dumps(current, indent=2), encoding="utf-8")
+        self._gist_write(current)
 
     def is_connected(self) -> bool:
         tokens = self._read_tokens()
