@@ -10,6 +10,11 @@ from typing import Any
 from dotenv import load_dotenv
 from openai import OpenAI
 
+try:
+    import streamlit as st
+except ImportError:
+    st = None
+
 
 class AIIntelligenceError(RuntimeError):
     pass
@@ -20,8 +25,18 @@ class AIIntelligenceClient:
         self.project_root = Path(project_root)
         load_dotenv(self.project_root / ".env", override=False)
 
-        self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
+        def get_setting(name: str, default: str = "") -> str:
+            if st is not None:
+                try:
+                    value = st.secrets.get(name)
+                    if value:
+                        return str(value)
+                except Exception:
+                    pass
+            return os.getenv(name, default)
+
+        self.api_key = get_setting("OPENAI_API_KEY").strip()
+        self.model = get_setting("OPENAI_MODEL", "gpt-4.1-mini").strip()
 
         if not self.api_key:
             raise AIIntelligenceError(

@@ -12,6 +12,11 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from openai import OpenAI
 
+try:
+    import streamlit as st
+except ImportError:
+    st = None
+
 
 class CompanyResearchError(RuntimeError):
     pass
@@ -63,12 +68,23 @@ class CompanyResearchClient:
         self.db_path = self.state_dir / "company_research.db"
 
         load_dotenv(self.project_root / ".env", override=False)
-        self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        self.model = os.getenv(
+
+        def get_setting(name: str, default: str = "") -> str:
+            if st is not None:
+                try:
+                    value = st.secrets.get(name)
+                    if value:
+                        return str(value)
+                except Exception:
+                    pass
+            return os.getenv(name, default)
+
+        self.api_key = get_setting("OPENAI_API_KEY").strip()
+        self.model = get_setting(
             "OPENAI_RESEARCH_MODEL",
-            os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+            get_setting("OPENAI_MODEL", "gpt-4.1-mini"),
         ).strip()
-        self.cache_days = int(os.getenv("COMPANY_RESEARCH_CACHE_DAYS", "30") or 30)
+        self.cache_days = int(get_setting("COMPANY_RESEARCH_CACHE_DAYS", "30") or 30)
 
         if not self.api_key:
             raise CompanyResearchError(
