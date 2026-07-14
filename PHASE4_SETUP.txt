@@ -1,0 +1,45 @@
+CHAPRONET LEAD INTELLIGENCE — PHASE 4A
+
+WHAT THIS ADDS
+- AI opportunity score for each permit
+- Estimated ChaproNet revenue range
+- Building-type assessment
+- Construction-stage assessment
+- Recommended systems
+- Best first contact
+- Sales angle
+- Next-action plan
+- Risks and assumptions
+- Local database storage so analysis is not regenerated on every page load
+- Manual regenerate control
+
+INSTALL
+1. Close the black run_dashboard terminal window.
+2. Extract this ZIP directly into your working project folder.
+3. Replace files in src when prompted.
+4. Double-click install_phase4.bat.
+5. Add these lines to .env:
+
+OPENAI_API_KEY=YOUR_OPENAI_PROJECT_API_KEY
+OPENAI_MODEL=gpt-4.1-mini
+
+6. Save .env.
+7. Double-click run_dashboard.bat.
+8. Select one permit and click Generate AI analysis.
+9. Review the output before using it for sales or estimating.
+
+SECURITY
+- Never commit or upload .env.
+- Never paste the API key into chat, GitHub, Confluence, or Jobber.
+- The .gitignore should continue excluding .env.
+
+VERSION CONTROL
+After the update works, commit it:
+
+git add .
+git commit -m "Add Phase 4 AI opportunity intelligence"
+git push
+
+IMPORTANT
+AI output is preliminary sales guidance. It is not a site survey, engineered
+design, code-compliance review, or final quotation.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import sqlite3
 import subprocess
@@ -15,6 +16,12 @@ import streamlit as st
 
 from jobber_integration import JobberClient, JobberError
 from confluence_integration import ConfluenceClient, ConfluenceError
+from ai_intelligence import AIIntelligenceClient, AIIntelligenceError
+from company_research import (
+    CompanyResearchClient,
+    CompanyResearchError,
+    extract_company_candidates,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = PROJECT_ROOT / "output"
@@ -69,6 +76,8 @@ def db() -> sqlite3.Connection:
             jobber_client_id TEXT DEFAULT '',
             jobber_request_id TEXT DEFAULT '',
             confluence_url TEXT DEFAULT '',
+            ai_analysis_json TEXT DEFAULT '',
+            ai_updated_at TEXT DEFAULT '',
             updated_at TEXT NOT NULL
         )
         """
@@ -77,7 +86,12 @@ def db() -> sqlite3.Connection:
     existing_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(lead_tracking)").fetchall()
     }
-    for column in ["jobber_client_id", "jobber_request_id"]:
+    for column in [
+        "jobber_client_id",
+        "jobber_request_id",
+        "ai_analysis_json",
+        "ai_updated_at",
+    ]:
         if column not in existing_columns:
             conn.execute(
                 f"ALTER TABLE lead_tracking ADD COLUMN {column} TEXT DEFAULT ''"
@@ -95,7 +109,7 @@ def save_tracking(permit_number: str, values: dict[str, Any]) -> None:
     permitted = {
         "status", "assigned_to", "phone", "email", "company",
         "next_follow_up", "notes", "jobber_url", "jobber_client_id",
-        "jobber_request_id", "confluence_url"
+        "jobber_request_id", "confluence_url", "ai_analysis_json", "ai_updated_at"
     }
     clean = {k: str(v or "") for k, v in values.items() if k in permitted}
     fields = ["permit_number"] + list(clean.keys()) + ["updated_at"]
@@ -129,7 +143,7 @@ def load_leads() -> pd.DataFrame:
         for col in [
             "status", "assigned_to", "phone", "email", "company",
             "next_follow_up", "notes", "jobber_url", "jobber_client_id",
-            "jobber_request_id", "confluence_url"
+            "jobber_request_id", "confluence_url", "ai_analysis_json", "ai_updated_at"
         ]:
             tracked = f"{col}_tracked"
             if tracked in df.columns:
@@ -185,7 +199,7 @@ def run_permit_refresh() -> tuple[bool, str]:
         return False, str(exc)
 
 st.title("ChaproNet Lead Intelligence")
-st.caption("Local dashboard • Chicago permit opportunities • Live permit tracking • Jobber client/request creation • Confluence intelligence pages")
+st.caption("Local dashboard • Chicago permits • Jobber • Confluence • AI opportunity intelligence • Live company research")
 
 with st.sidebar:
     st.header("Controls")
@@ -258,6 +272,18 @@ with st.sidebar:
         st.write(f"✅ Confluence connected: {site}")
     except Exception as exc:
         st.write("🟡 Confluence not connected")
+        st.caption(str(exc))
+    try:
+        ai_sidebar = AIIntelligenceClient(PROJECT_ROOT)
+        st.write(f"✅ AI intelligence ready: {ai_sidebar.model}")
+    except Exception as exc:
+        st.write("🟡 AI intelligence not configured")
+        st.caption(str(exc))
+    try:
+        research_sidebar = CompanyResearchClient(PROJECT_ROOT)
+        st.write(f"✅ Live company research ready: {research_sidebar.model}")
+    except Exception as exc:
+        st.write("🟡 Company research not configured")
         st.caption(str(exc))
 
 df = load_leads()
@@ -368,6 +394,270 @@ with tab1:
             for col, (label, url) in zip(links, link_data):
                 if url:
                     col.link_button(label, str(url), use_container_width=True)
+
+            st.divider()
+            st.markdown("### AI Opportunity Intelligence")
+            stored_ai = clean_text(row.get("ai_analysis_json", ""))
+            ai_result = None
+            if stored_ai:
+                try:
+                    ai_result = json.loads(stored_ai)
+                except Exception:
+                    ai_result = None
+
+            if ai_result:
+                ai1, ai2, ai3 = st.columns(3)
+                ai1.metric("AI opportunity score", f"{ai_result.get('opportunity_score', 0)}/100")
+                ai2.metric(
+                    "Estimated ChaproNet revenue",
+                    f"${int(ai_result.get('estimated_revenue_low', 0)):,}–${int(ai_result.get('estimated_revenue_high', 0)):,}",
+                )
+                ai3.metric("Confidence", f"{ai_result.get('confidence', 0)}%")
+
+                st.write(f"**Building type:** {ai_result.get('building_type', 'Unknown')}")
+                st.write(f"**Construction stage:** {ai_result.get('construction_stage', 'Unknown')}")
+                st.write(f"**Best first contact:** {ai_result.get('best_first_contact', 'Research needed')}")
+                st.write(f"**Sales angle:** {ai_result.get('sales_angle', '')}")
+
+                services = ai_result.get("recommended_services") or []
+                if services:
+                    st.write("**Recommended systems**")
+                    st.markdown("\n".join(f"- {service}" for service in services))
+
+                next_actions = ai_result.get("next_actions") or []
+                if next_actions:
+                    st.write("**Next actions**")
+                    st.markdown("\n".join(f"{i+1}. {action}" for i, action in enumerate(next_actions)))
+
+                risks = ai_result.get("risks") or []
+                if risks:
+                    with st.expander("Risks and assumptions"):
+                        st.markdown("\n".join(f"- {risk}" for risk in risks))
+
+                if st.button(
+                    "Regenerate AI analysis",
+                    key=f"regenerate-ai-{permit_no}",
+                    use_container_width=True,
+                ):
+                    save_tracking(permit_no, {"ai_analysis_json": "", "ai_updated_at": ""})
+                    st.rerun()
+            else:
+                st.caption(
+                    "AI analysis uses the permit details already in the dashboard. "
+                    "It does not replace a site survey or final engineering estimate."
+                )
+                if st.button(
+                    "Generate AI analysis",
+                    key=f"generate-ai-{permit_no}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    try:
+                        ai_client = AIIntelligenceClient(PROJECT_ROOT)
+                        with st.spinner("Analyzing this permit opportunity..."):
+                            ai_result = ai_client.analyze_lead(
+                                permit_number=permit_no,
+                                address=clean_text(row.get("address", "")),
+                                permit_type=clean_text(row.get("permit_type", "")),
+                                description=clean_text(row.get("work_description", "")),
+                                reported_cost=row.get("reported_cost"),
+                                existing_score=row.get("lead_score"),
+                                recommended_services=clean_text(row.get("recommended_services", "")),
+                                permit_contacts=clean_text(row.get("permit_contacts", "")),
+                            )
+                        save_tracking(
+                            permit_no,
+                            {
+                                "ai_analysis_json": json.dumps(ai_result),
+                                "ai_updated_at": datetime.now().isoformat(timespec="seconds"),
+                            },
+                        )
+                        st.success("AI opportunity analysis created.")
+                        st.rerun()
+                    except AIIntelligenceError as exc:
+                        st.error(f"AI analysis error: {exc}")
+                    except Exception as exc:
+                        st.error(f"Unexpected AI error: {exc}")
+
+            st.divider()
+            st.markdown("### Company Research")
+            st.caption(
+                "Uses live web search the first time, then saves the company profile "
+                "locally for faster reuse. Refresh research when the saved profile becomes stale."
+            )
+
+            company_candidates = extract_company_candidates(
+                clean_text(row.get("permit_contacts", ""))
+            )
+            role_options = list(company_candidates.keys())
+            if "Company / owner" not in role_options:
+                role_options.append("Company / owner")
+            if not role_options:
+                role_options = ["Company / owner"]
+
+            selected_research_role = st.selectbox(
+                "Company role",
+                role_options,
+                key=f"research-role-{permit_no}",
+            )
+            default_company_name = company_candidates.get(
+                selected_research_role,
+                clean_text(row.get("company", "")),
+            )
+            research_company_name = st.text_input(
+                "Company name",
+                value=default_company_name,
+                key=f"research-company-{permit_no}-{selected_research_role}",
+                placeholder="Example: Ryan Companies US, Inc.",
+            )
+
+            company_research_result = None
+            research_client = None
+            try:
+                research_client = CompanyResearchClient(PROJECT_ROOT)
+                if research_company_name.strip():
+                    company_research_result = research_client.get_cached(
+                        research_company_name,
+                        selected_research_role,
+                    )
+            except Exception as exc:
+                st.warning(f"Company research setup: {exc}")
+
+            research_col1, research_col2 = st.columns(2)
+            run_research = research_col1.button(
+                "Research company",
+                key=f"research-company-button-{permit_no}-{selected_research_role}",
+                type="primary",
+                use_container_width=True,
+                disabled=not research_company_name.strip(),
+            )
+            refresh_research = research_col2.button(
+                "Refresh live research",
+                key=f"refresh-company-button-{permit_no}-{selected_research_role}",
+                use_container_width=True,
+                disabled=not research_company_name.strip(),
+            )
+
+            if run_research or refresh_research:
+                try:
+                    research_client = research_client or CompanyResearchClient(PROJECT_ROOT)
+                    with st.spinner("Searching public company and project sources..."):
+                        company_research_result = research_client.research_company(
+                            company_name=research_company_name,
+                            role=selected_research_role,
+                            address=clean_text(row.get("address", "")),
+                            permit_number=permit_no,
+                            permit_type=clean_text(row.get("permit_type", "")),
+                            work_description=clean_text(row.get("work_description", "")),
+                            force_refresh=refresh_research,
+                        )
+                    st.success(
+                        "Company research refreshed from live sources."
+                        if refresh_research
+                        else "Company research completed."
+                    )
+                except CompanyResearchError as exc:
+                    st.error(f"Company research error: {exc}")
+                except Exception as exc:
+                    st.error(f"Unexpected company research error: {exc}")
+
+            if company_research_result:
+                source_label = (
+                    "Saved local profile"
+                    if company_research_result.get("_from_cache")
+                    else "Fresh live research"
+                )
+                if company_research_result.get("_is_stale"):
+                    source_label += " • stale"
+                st.caption(
+                    f"{source_label} • Last researched: "
+                    f"{company_research_result.get('_researched_at', 'Unknown')}"
+                )
+
+                r1, r2 = st.columns(2)
+                r1.metric(
+                    "Identity confidence",
+                    f"{company_research_result.get('identity_confidence', 0)}%",
+                )
+                r2.metric(
+                    "Chicago presence",
+                    company_research_result.get("chicago_presence", "Unknown"),
+                )
+
+                st.write(
+                    f"**Company:** {company_research_result.get('company_name', research_company_name)}"
+                )
+                st.write(
+                    f"**Industry:** {company_research_result.get('industry', '') or 'Not confirmed'}"
+                )
+                st.write(
+                    f"**Headquarters:** {company_research_result.get('headquarters', '') or 'Not confirmed'}"
+                )
+                st.write(
+                    f"**Founded:** {company_research_result.get('founded', '') or 'Not confirmed'}"
+                )
+                st.write(
+                    f"**Employees:** {company_research_result.get('employee_range', '') or 'Not confirmed'}"
+                )
+                st.write(
+                    f"**Estimated revenue:** {company_research_result.get('revenue_range', '') or 'Not confirmed'}"
+                )
+
+                website = clean_text(company_research_result.get("website", ""))
+                phone_number = clean_text(company_research_result.get("phone", ""))
+                email_address = clean_text(company_research_result.get("email", ""))
+                links_row = st.columns(2)
+                if website:
+                    links_row[0].link_button(
+                        "Open company website",
+                        website,
+                        use_container_width=True,
+                    )
+                if phone_number:
+                    links_row[1].write(f"**Public phone:** {phone_number}")
+                if email_address:
+                    st.write(f"**Public email:** {email_address}")
+
+                summary = clean_text(company_research_result.get("summary", ""))
+                if summary:
+                    st.write("**Company profile**")
+                    st.info(summary)
+
+                decision_roles = company_research_result.get("decision_maker_roles") or []
+                if decision_roles:
+                    st.write("**Likely decision-maker roles**")
+                    st.markdown("\n".join(f"- {item}" for item in decision_roles))
+
+                projects = company_research_result.get("recent_projects") or []
+                if projects:
+                    with st.expander("Recent or relevant projects"):
+                        st.markdown("\n".join(f"- {item}" for item in projects))
+
+                strategy = clean_text(company_research_result.get("sales_strategy", ""))
+                if strategy:
+                    st.write("**ChaproNet sales strategy**")
+                    st.success(strategy)
+
+                actions = company_research_result.get("recommended_next_actions") or []
+                if actions:
+                    st.write("**Recommended next actions**")
+                    st.markdown(
+                        "\n".join(f"{i + 1}. {item}" for i, item in enumerate(actions))
+                    )
+
+                sources = company_research_result.get("sources") or []
+                if sources:
+                    with st.expander("Research sources"):
+                        for source in sources:
+                            if isinstance(source, dict) and source.get("url"):
+                                st.markdown(
+                                    f"- [{source.get('title', source['url'])}]({source['url']})"
+                                )
+
+                warnings = company_research_result.get("warnings") or []
+                if warnings:
+                    with st.expander("Identity warnings and limitations"):
+                        st.markdown("\n".join(f"- {item}" for item in warnings))
 
         with right:
             st.markdown("### Sales Tracking")

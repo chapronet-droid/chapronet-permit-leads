@@ -1,0 +1,54 @@
+CHAPRONET PHASE 5 - STEP 1
+LIVE COMPANY RESEARCH + LOCAL CACHE
+
+WHAT THIS ADDS
+- Research a permit owner, general contractor, architect, electrical contractor,
+  expediter, or another company
+- Uses OpenAI live web search
+- Saves completed research in state\company_research.db
+- Reuses saved profiles for 30 days by default
+- Manual Refresh live research button
+- Company identity confidence
+- Website, public phone, headquarters, Chicago presence, industry, founding year
+- Employee and revenue ranges when supported
+- Decision-maker role suggestions
+- Relevant projects
+- ChaproNet sales strategy
+- Recommended next actions
+- Clickable source links
+- Identity warnings and limitations
+
+INSTALL
+1. Close the dashboard browser tab and black Streamlit window.
+2. Extract this ZIP directly into:
+   ChaproNet_OS\Legacy working version\chapronet_permit_leads
+3. Choose Replace files in destination when Windows asks.
+4. Double-click install_phase5.bat.
+5. Double-click run_dashboard.bat.
+6. Open a permit.
+7. Scroll below AI Opportunity Intelligence to Company Research.
+8. Select the company role, verify/edit the company name, and click Research company.
+
+ENVIRONMENT SETTINGS
+These are optional because the system reuses your existing OpenAI settings:
+
+OPENAI_RESEARCH_MODEL=gpt-4.1-mini
+COMPANY_RESEARCH_CACHE_DAYS=30
+
+BILLING
+Live research uses the OpenAI API and web search tool. API charges are separate
+from ChatGPT subscriptions. Saved local profiles avoid repeating the same research
+on every dashboard load.
+
+SECURITY
+- Keep .env private.
+- Do not commit .env to GitHub.
+- Only public business information should be stored.
+- Verify contact and company identity before outreach.
+
+VERSION CONTROL
+After testing:
+
+git add .
+git commit -m "Add Phase 5 company research engine"
+git push
