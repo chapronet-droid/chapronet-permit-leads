@@ -70,13 +70,27 @@ class JobberClient:
         ).strip()
         self.refresh_token = get_setting("JOBBER_REFRESH_TOKEN")
 
-    def _read_tokens(self) -> dict[str, Any]:
-        if not self.token_path.exists():
+        def _read_tokens(self) -> dict[str, Any]:
+         if not self.token_path.exists():
+            if self.refresh_token:
+                return {"refresh_token": self.refresh_token}
             return {}
+
         try:
-            return json.loads(self.token_path.read_text(encoding="utf-8"))
+            tokens = json.loads(
+                self.token_path.read_text(encoding="utf-8")
+            )
+
+            if not tokens.get("refresh_token") and self.refresh_token:
+                tokens["refresh_token"] = self.refresh_token
+
+            return tokens
+
         except Exception as exc:
-            raise JobberError("Could not read saved Jobber tokens.", str(exc))
+            raise JobberError(
+                "Could not read saved Jobber tokens.",
+                str(exc),
+            ) from exc
 
     def _save_tokens(self, data: dict[str, Any]) -> None:
         current = self._read_tokens()
