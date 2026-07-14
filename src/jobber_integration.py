@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -15,6 +14,11 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 from dotenv import load_dotenv
+
+try:
+    import streamlit as st
+except ImportError:
+    st = None
 
 
 AUTH_URL = "https://api.getjobber.com/api/oauth/authorize"
@@ -42,19 +46,29 @@ class JobberClient:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.token_path = self.state_dir / "jobber_tokens.json"
         self.oauth_state_path = self.state_dir / "jobber_oauth_state.json"
-
         load_dotenv(self.project_root / ".env", override=False)
-        self.client_id = os.getenv("JOBBER_CLIENT_ID", "").strip()
-        self.client_secret = os.getenv("JOBBER_CLIENT_SECRET", "").strip()
-        self.redirect_uri = os.getenv(
-            "JOBBER_REDIRECT_URI", "http://localhost:8000/callback"
-        ).strip()
-        self.api_version = os.getenv("JOBBER_API_VERSION", "2025-04-16").strip()
 
-        if not self.client_id or not self.client_secret:
-            raise JobberError(
-                "JOBBER_CLIENT_ID or JOBBER_CLIENT_SECRET is missing from .env."
-            )
+        def get_setting(name: str, default: str = "") -> str:
+            if st is not None:
+                try:
+                    value = st.secrets.get(name)
+                    if value:
+                        return str(value)
+                except Exception:
+                    pass
+            return os.getenv(name, default)
+
+        self.client_id = get_setting("JOBBER_CLIENT_ID")
+        self.client_secret = get_setting("JOBBER_CLIENT_SECRET")
+        self.redirect_uri = get_setting(
+            "JOBBER_REDIRECT_URI",
+            "http://localhost:8000/callback",
+        )
+        self.api_version = get_setting(
+            "JOBBER_API_VERSION",
+            "2025-04-16",
+        ).strip()
+        self.refresh_token = get_setting("JOBBER_REFRESH_TOKEN")
 
     def _read_tokens(self) -> dict[str, Any]:
         if not self.token_path.exists():
@@ -75,6 +89,11 @@ class JobberClient:
         return bool(tokens.get("access_token") or tokens.get("refresh_token"))
 
     def start_oauth(self) -> str:
+        # Clear any stale callback file from a previous run
+        stale_callback = self.state_dir / "jobber_callback.json"
+        if stale_callback.exists():
+            stale_callback.unlink()
+
         state = secrets.token_urlsafe(32)
         self.oauth_state_path.write_text(
             json.dumps({"state": state, "created_at": int(time.time())}),
@@ -151,6 +170,7 @@ class JobberClient:
             )
         callback = json.loads(callback_path.read_text(encoding="utf-8"))
         expected = json.loads(self.oauth_state_path.read_text(encoding="utf-8"))
+
         if callback.get("error"):
             raise JobberError("Jobber authorization was denied.", callback["error"])
         if not callback.get("code"):
@@ -199,7 +219,6 @@ class JobberClient:
                 f"HTTP {response.status_code}: {response.text}",
             )
         payload = response.json()
-        # Rotation may return a new refresh token. Always save the full response.
         self._save_tokens(payload)
         return payload["access_token"]
 
@@ -256,213 +275,12 @@ class JobberClient:
           requestInput: __type(name: "RequestCreateInput") {
             inputFields { name }
           }
-          propertyType: __type(name: "Property") {
-            fields { name }
+          jobInput: __type(name: "JobCreateInput") {
+            inputFields { name }
           }
-        }
-        """
-        return self._graphql(query)
-
-    @staticmethod
-    def _split_address(address: str) -> tuple[str, str, str, str]:
-        # City permits are already Chicago-focused. Keep parsing conservative.
-        return address.strip(), "Chicago", "IL", ""
-
-    def _create_client(
-        self, *, address: str, company: str, phone: str, email: str
-    ) -> dict[str, Any]:
-        street, city, province, postal_code = self._split_address(address)
-        display_company = company.strip() or f"Permit Lead - {address}"
-
-        mutation = """
-        mutation CreatePermitClient($input: ClientCreateInput!) {
-          clientCreate(input: $input) {
-            client {
-              id
-              companyName
-              properties {
-                id
-                address { street1 city province postalCode }
-              }
-            }
-            userErrors { message path }
-          }
-        }
-        """
-
-        # Jobber's API supports company clients and property addresses. Optional
-        # contact fields are only sent when the user entered them.
-        client_input: dict[str, Any] = {
-            "companyName": display_company,
-            "properties": [
-                {
-                    "address": {
-                        "street1": street,
-                        "city": city,
-                        "province": province,
-                        "postalCode": postal_code,
-                        "country": "US",
-                    }
-                }
-            ],
-        }
-        if email:
-            client_input["emails"] = [{"address": email, "description": "MAIN", "primary": True}]
-        if phone:
-            client_input["phones"] = [{"number": phone, "description": "MAIN", "primary": True}]
-
-        data = self._graphql(mutation, {"input": client_input})
-        result = data.get("clientCreate") or {}
-        errors = result.get("userErrors") or []
-        if errors:
-            raise JobberError("Jobber could not create the client.", json.dumps(errors, indent=2))
-        client = result.get("client")
-        if not client:
-            raise JobberError("Jobber returned no client after creation.", json.dumps(data, indent=2))
-        return client
-
-    def _get_input_field_names(self, type_name: str) -> set[str]:
-        query = """
-        query InputFields($name: String!) {
-          __type(name: $name) {
+          invoiceInput: __type(name: "InvoiceCreateInput") {
             inputFields { name }
           }
         }
         """
-        data = self._graphql(query, {"name": type_name})
-        fields = ((data.get("__type") or {}).get("inputFields") or [])
-        return {str(item.get("name")) for item in fields if item.get("name")}
-
-    def _create_request(
-        self,
-        *,
-        client_id: str,
-        property_id: str,
-        title: str,
-        details: str,
-    ) -> dict[str, Any]:
-        mutation = """
-        mutation CreatePermitRequest($input: RequestCreateInput!) {
-          requestCreate(input: $input) {
-            request { id title }
-            userErrors { message path }
-          }
-        }
-        """
-
-        allowed = self._get_input_field_names("RequestCreateInput")
-        request_input: dict[str, Any] = {}
-
-        # Required relationship fields used by Jobber's current request mutation.
-        if "clientId" in allowed:
-            request_input["clientId"] = client_id
-        if "propertyId" in allowed:
-            request_input["propertyId"] = property_id
-        if "title" in allowed:
-            request_input["title"] = title
-
-        # Do not submit assessment/details here. In the current Jobber schema,
-        # "assessment" is a nested input object rather than a plain string.
-        # Creating the request with its core relationship and title fields is
-        # reliable across the active API version. Permit details remain stored
-        # in the ChaproNet dashboard and can be added to Jobber in a later note
-        # mutation once that schema is confirmed.
-
-        if not request_input:
-            raise JobberError(
-                "Jobber's RequestCreateInput schema did not expose usable fields.",
-                f"Available fields: {sorted(allowed)}",
-            )
-
-        data = self._graphql(mutation, {"input": request_input})
-        result = data.get("requestCreate") or {}
-        errors = result.get("userErrors") or []
-        if errors:
-            raise JobberError(
-                "The client was created, but Jobber would not create the request.",
-                json.dumps(
-                    {
-                        "userErrors": errors,
-                        "requestInputFields": sorted(allowed),
-                        "submittedFields": sorted(request_input.keys()),
-                        "note": "Long-form permit details were intentionally omitted because assessment is a nested input object.",
-                    },
-                    indent=2,
-                ),
-            )
-        request = result.get("request")
-        if not request:
-            raise JobberError(
-                "The client was created, but Jobber returned no request.",
-                json.dumps(
-                    {
-                        "requestInputFields": sorted(allowed),
-                        "submittedFields": sorted(request_input.keys()),
-                        "note": "Long-form permit details were intentionally omitted because assessment is a nested input object.",
-                        "response": data,
-                    },
-                    indent=2,
-                ),
-            )
-        return request
-
-    def create_permit_lead(
-        self,
-        *,
-        permit_number: str,
-        address: str,
-        company: str,
-        phone: str,
-        email: str,
-        description: str,
-        permit_type: str,
-        reported_cost: Any,
-        lead_score: Any,
-        recommended_services: str,
-        source_url: str,
-    ) -> dict[str, Any]:
-        client = self._create_client(
-            address=address,
-            company=company,
-            phone=phone,
-            email=email,
-        )
-        raw_properties = client.get("properties") or []
-        # Current Jobber schema returns properties as a direct list. Retain
-        # compatibility with older Relay-style connection responses.
-        if isinstance(raw_properties, dict):
-            properties = raw_properties.get("nodes") or []
-        else:
-            properties = raw_properties
-        if not properties:
-            raise JobberError(
-                "The Jobber client was created without a property.",
-                json.dumps(client, indent=2),
-            )
-        property_id = properties[0]["id"]
-
-        details = (
-            f"Chicago permit lead\n"
-            f"Permit number: {permit_number}\n"
-            f"Address: {address}\n"
-            f"Permit type: {permit_type}\n"
-            f"Reported construction cost: {reported_cost}\n"
-            f"ChaproNet lead score: {lead_score}\n"
-            f"Recommended services: {recommended_services}\n\n"
-            f"Permit description:\n{description}\n\n"
-            f"Source: {source_url}"
-        )
-        request = self._create_request(
-            client_id=client["id"],
-            property_id=property_id,
-            title=f"Permit Lead - {address}",
-            details=details,
-        )
-
-        # Account-specific deep links are not stable in the API. The generic
-        # client page still gets the user directly into Jobber.
-        return {
-            "client_id": client["id"],
-            "request_id": request["id"],
-            "jobber_url": "https://secure.getjobber.com/clients",
-        }
+        return self._graphql(query)
