@@ -83,7 +83,10 @@ class JobberClient:
         except Exception:
             tokens = {}
 
-        if self.refresh_token:
+        # Jobber rotates refresh tokens on use. Once a rotated token has been
+        # persisted, prefer it over the static secrets value so we don't keep
+        # replaying an already-consumed token on every subsequent refresh.
+        if self.refresh_token and not tokens.get("refresh_token"):
             tokens["refresh_token"] = self.refresh_token
 
         return tokens
