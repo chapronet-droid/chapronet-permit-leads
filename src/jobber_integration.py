@@ -160,9 +160,9 @@ class JobberClient:
         def serve():
             try:
                 server = HTTPServer((host, port), Handler)
-                server.timeout = 180
+                server.timeout = 600
                 start = time.time()
-                while time.time() - start < 180 and not result_file.exists():
+                while time.time() - start < 600 and not result_file.exists():
                     server.handle_request()
                 server.server_close()
             except OSError:
