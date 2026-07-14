@@ -11,6 +11,11 @@ from urllib.parse import urljoin
 import requests
 from dotenv import load_dotenv
 
+try:
+    import streamlit as st
+except ImportError:
+    st = None
+
 
 class ConfluenceError(RuntimeError):
     pass
@@ -21,12 +26,22 @@ class ConfluenceClient:
         self.project_root = Path(project_root)
         load_dotenv(self.project_root / ".env", override=False)
 
-        self.site_url = os.getenv("CONFLUENCE_SITE_URL", "").strip().rstrip("/")
-        self.email = os.getenv("CONFLUENCE_EMAIL", "").strip()
-        self.api_token = os.getenv("CONFLUENCE_API_TOKEN", "").strip()
-        self.space_id = os.getenv("CONFLUENCE_SPACE_ID", "").strip()
-        self.space_key = os.getenv("CONFLUENCE_SPACE_KEY", "MFS").strip()
-        self.parent_page_id = os.getenv("CONFLUENCE_PARENT_PAGE_ID", "").strip()
+        def get_setting(name: str, default: str = "") -> str:
+            if st is not None:
+                try:
+                    value = st.secrets.get(name)
+                    if value:
+                        return str(value)
+                except Exception:
+                    pass
+            return os.getenv(name, default)
+
+        self.site_url = get_setting("CONFLUENCE_SITE_URL").strip().rstrip("/")
+        self.email = get_setting("CONFLUENCE_EMAIL").strip()
+        self.api_token = get_setting("CONFLUENCE_API_TOKEN").strip()
+        self.space_id = get_setting("CONFLUENCE_SPACE_ID").strip()
+        self.space_key = get_setting("CONFLUENCE_SPACE_KEY", "MFS").strip()
+        self.parent_page_id = get_setting("CONFLUENCE_PARENT_PAGE_ID").strip()
 
         missing = [
             name for name, value in {
