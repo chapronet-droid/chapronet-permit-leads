@@ -29,7 +29,6 @@ STATE_DIR = PROJECT_ROOT / "state"
 DB_PATH = STATE_DIR / "dashboard.db"
 CSV_PATH = OUTPUT_DIR / "chapronet_permit_leads.csv"
 TOP_CSV_PATH = OUTPUT_DIR / "chapronet_top_leads.csv"
-RUN_SCRIPT = PROJECT_ROOT / "run_daily.bat"
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -183,11 +182,12 @@ def confluence_page_id_from_url(url: str) -> str:
     return match.group(1) if match else ""
 
 def run_permit_refresh() -> tuple[bool, str]:
-    if not RUN_SCRIPT.exists():
-        return False, "run_daily.bat was not found."
+    script_path = PROJECT_ROOT / "src" / "permit_leads.py"
+    if not script_path.exists():
+        return False, "src/permit_leads.py was not found."
     try:
         completed = subprocess.run(
-            ["cmd.exe", "/c", str(RUN_SCRIPT)],
+            [sys.executable, str(script_path), "--config", str(PROJECT_ROOT / "config.yaml")],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
