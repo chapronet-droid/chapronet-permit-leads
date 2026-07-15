@@ -210,14 +210,20 @@ with st.sidebar:
     if st.button("▶ Run permit update now", use_container_width=True):
         with st.spinner("Pulling the latest Chicago permits..."):
             ok, message = run_permit_refresh()
-        if ok:
+        st.session_state["permit_update_result"] = (ok, message)
+        st.cache_data.clear()
+        st.rerun()
+
+    permit_update_result = st.session_state.pop("permit_update_result", None)
+    if permit_update_result:
+        update_ok, update_message = permit_update_result
+        if update_ok:
             st.success("Permit report updated.")
-            st.cache_data.clear()
             with st.expander("Run details"):
-                st.code(message)
+                st.code(update_message)
         else:
             st.error("Permit update failed.")
-            st.code(message)
+            st.code(update_message)
 
     st.divider()
     with st.expander("Repair local Jobber status"):
