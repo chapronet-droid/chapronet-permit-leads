@@ -16,6 +16,25 @@ except ImportError:
     st = None
 
 
+# Single source of truth for ChaproNet's service catalog. The AI's
+# recommended_services always come from this exact list, and ChaproNet
+# Experience records (dashboard_pages/experience.py) draw services_performed
+# from the same list, so work-experience matching can compare them as exact
+# strings instead of guessing at fuzzy text similarity.
+CHAPRONET_SERVICES = [
+    "CCTV / surveillance",
+    "Access control",
+    "Video intercoms",
+    "Structured cabling",
+    "Cat5e/Cat6 data cabling",
+    "Commercial Wi-Fi",
+    "Networking",
+    "PoE infrastructure",
+    "Audio/visual systems",
+    "TV/display installation",
+]
+
+
 class AIIntelligenceError(RuntimeError):
     pass
 
@@ -133,24 +152,16 @@ class AIIntelligenceClient:
         permit_contacts: str,
     ) -> dict[str, Any]:
         construction_cost = self._number(reported_cost)
+        services_list = "\n".join(f"- {service}" for service in CHAPRONET_SERVICES)
 
-        instructions = """
+        instructions = f"""
 You are a commercial low-voltage sales engineer for ChaproNet, a Chicago security
 and technology integrator. Analyze public building-permit information and produce
 a conservative sales-opportunity assessment (the "Lead Score" for this permit).
 
 ChaproNet's services -- only recommend from this exact list, and only the ones
 that plausibly apply to this specific permit's description and building type:
-- CCTV / surveillance
-- Access control
-- Video intercoms
-- Structured cabling
-- Cat5e/Cat6 data cabling
-- Commercial Wi-Fi
-- Networking
-- PoE infrastructure
-- Audio/visual systems
-- TV/display installation
+{services_list}
 
 Weight the opportunity_score higher for project types most likely to need this
 work: commercial renovations, new construction, restaurants, retail, offices,

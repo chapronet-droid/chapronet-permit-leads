@@ -7,7 +7,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from dashboard_common import load_leads, money, page_header, empty_state
+from dashboard_common import load_leads, money, page_header, empty_state, LEAD_STAGES
 
 
 def render() -> None:
@@ -18,23 +18,28 @@ def render() -> None:
         empty_state("📭", "No permit data yet", "Run a permit update from Settings first.")
         return
 
+    with st.container(border=True):
+        st.markdown("#### CRM Pipeline")
+        st.caption("Every lead, grouped by stage in funnel order -- not sorted by value, so it reads left-to-right as the actual pipeline.")
+        counts = df["status"].value_counts()
+        values = df.groupby("status")["reported_cost"].sum().fillna(0)
+        ordered_stages = [s for s in LEAD_STAGES if s in counts.index] + [
+            s for s in counts.index if s not in LEAD_STAGES
+        ]
+        funnel = pd.DataFrame(
+            {"Leads": [int(counts.get(s, 0)) for s in ordered_stages]},
+            index=ordered_stages,
+        )
+        st.bar_chart(funnel)
+        table = pd.DataFrame({
+            "Stage": ordered_stages,
+            "Leads": [int(counts.get(s, 0)) for s in ordered_stages],
+            "Reported Value": [money(values.get(s, 0)) for s in ordered_stages],
+        })
+        st.dataframe(table, use_container_width=True, hide_index=True)
+
     col1, col2 = st.columns(2)
     with col1:
-        with st.container(border=True):
-            st.markdown("#### Pipeline by Status")
-            pipeline_status = (
-                df.groupby("status", dropna=False)
-                .agg(leads=("permit_number", "count"), reported_value=("reported_cost", "sum"))
-                .reset_index()
-                .sort_values("reported_value", ascending=False)
-            )
-            pipeline_status["reported_value"] = pipeline_status["reported_value"].fillna(0)
-            st.bar_chart(pipeline_status.set_index("status")["leads"])
-            display_pipeline = pipeline_status.copy()
-            display_pipeline["reported_value"] = display_pipeline["reported_value"].map(money)
-            display_pipeline = display_pipeline.rename(columns={"status": "Status", "leads": "Leads", "reported_value": "Reported Value"})
-            st.dataframe(display_pipeline, use_container_width=True, hide_index=True)
-
         with st.container(border=True):
             st.markdown("#### Priority Distribution")
             if "priority" in df.columns:

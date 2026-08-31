@@ -19,6 +19,7 @@ from dashboard_pages import (
     saved_permits,
     contractors,
     analytics,
+    experience,
     settings,
 )
 
@@ -40,6 +41,7 @@ pages = {
     "Saved Permits": st.Page(saved_permits.render, title="Saved Permits", icon="⭐", url_path="saved-permits"),
     "Contractors": st.Page(contractors.render, title="Contractors", icon="👷", url_path="contractors"),
     "Analytics": st.Page(analytics.render, title="Analytics", icon="📊", url_path="analytics"),
+    "Experience": st.Page(experience.render, title="Experience", icon="🗂️", url_path="experience"),
     "Settings": st.Page(settings.render, title="Settings", icon="⚙️", url_path="settings"),
 }
 register_pages(pages)

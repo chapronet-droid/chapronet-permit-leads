@@ -37,12 +37,10 @@ from dashboard_common import (
     render_tags_html,
     lead_status_badge,
     ai_lead_score,
+    match_experience,
+    LEAD_STAGES,
 )
 
-LEAD_STAGES = [
-    "New Lead", "Qualified", "Email Drafted", "Contacted", "Follow-Up Needed",
-    "Meeting Scheduled", "Estimate Requested", "Estimate Sent", "Won", "Lost",
-]
 CONTACT_TYPES = ["Owner", "General Contractor", "Developer", "Property Manager", "Other"]
 
 
@@ -424,6 +422,19 @@ def render_lead_detail_panel(row: pd.Series, permit_no: str) -> None:
                     "relevant email (it feeds recommended services and building type in). "
                     "You can still generate one without it."
                 )
+            else:
+                preview_match = match_experience(
+                    building_type=ai_result.get("building_type", "Unknown"),
+                    recommended_services=ai_result.get("recommended_services") or [],
+                    permit_type=clean_text(row.get("permit_type", "")),
+                )
+                if preview_match:
+                    st.caption(
+                        f"📎 Will reference your **{preview_match['building_type']}** "
+                        f"**{preview_match['project_type'].lower()}** experience from ChaproNet Experience."
+                    )
+                else:
+                    st.caption("No closely matching past project found in Experience -- the email will speak generally.")
 
             draft_subject = clean_text(row.get("outreach_email_subject", ""))
             draft_body = clean_text(row.get("outreach_email_body", ""))
@@ -454,18 +465,24 @@ def render_lead_detail_panel(row: pd.Series, permit_no: str) -> None:
                 try:
                     outreach_client = OutreachClient(PROJECT_ROOT)
                     services_for_email = (ai_result or {}).get("recommended_services") or []
+                    building_type_for_email = (ai_result or {}).get("building_type", "Unknown")
+                    experience_match = match_experience(
+                        building_type=building_type_for_email,
+                        recommended_services=services_for_email,
+                        permit_type=clean_text(row.get("permit_type", "")),
+                    )
                     with st.spinner("Writing a personalized outreach email..."):
                         email = outreach_client.generate_email(
                             permit_number=permit_no,
                             address=clean_text(row.get("address", "")),
                             permit_type=clean_text(row.get("permit_type", "")),
                             description=clean_text(row.get("work_description", "")),
-                            building_type=(ai_result or {}).get("building_type", "Unknown"),
+                            building_type=building_type_for_email,
                             recommended_services=services_for_email,
                             best_contact_type=clean_text(row.get("best_contact_type", "")) or (ai_result or {}).get("best_contact_type", "Other"),
                             contact_name=clean_text(row.get("contact_name", "")),
                             contact_company=clean_text(row.get("company", "")),
-                            matched_experience=None,  # wired up in Phase 2
+                            matched_experience=experience_match,
                             regenerate_note=regenerate_note,
                         )
                     updates = {
@@ -477,7 +494,16 @@ def render_lead_detail_panel(row: pd.Series, permit_no: str) -> None:
                     if str(row.get("status", "New Lead") or "New Lead") in ("New Lead", "Qualified"):
                         updates["status"] = "Email Drafted"
                     save_tracking(permit_no, updates)
-                    st.success("Outreach email generated. Review it below before approving.")
+                    if experience_match:
+                        st.success(
+                            f"Outreach email generated, referencing your {experience_match['building_type']} "
+                            f"{experience_match['project_type'].lower()} experience. Review it below before approving."
+                        )
+                    else:
+                        st.success(
+                            "Outreach email generated. No closely matching past project was found in Experience, "
+                            "so it speaks generally about ChaproNet's experience. Review it below before approving."
+                        )
                     st.rerun()
                 except OutreachError as exc:
                     st.error(f"Outreach email error: {exc}")

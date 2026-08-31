@@ -55,6 +55,11 @@ COLORS = {
     "ink": "#0F172A",
 }
 
+LEAD_STAGES = [
+    "New Lead", "Qualified", "Email Drafted", "Contacted", "Follow-Up Needed",
+    "Meeting Scheduled", "Estimate Requested", "Estimate Sent", "Won", "Lost",
+]
+
 PAGE_ICONS = {
     "Dashboard": "🏠",
     "Permit Search": "🔍",
@@ -64,6 +69,7 @@ PAGE_ICONS = {
     "Saved Permits": "⭐",
     "Contractors": "👷",
     "Analytics": "📊",
+    "Experience": "🗂️",
     "Settings": "⚙️",
 }
 
@@ -703,6 +709,7 @@ def kpi_card(column, icon: str, label: str, value: str, accent: str = "blue") ->
 # import surface; the parsing logic itself still lives in company_research.py).
 # ---------------------------------------------------------------------------
 from company_research import extract_company_candidates  # noqa: E402
+from ai_intelligence import CHAPRONET_SERVICES  # noqa: E402
 
 
 def build_contractor_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -758,3 +765,141 @@ def paginate(df: pd.DataFrame, state_key: str, page_size: int = 15) -> tuple[pd.
     start = (page - 1) * page_size
     end = start + page_size
     return df.iloc[start:end], page, total_pages
+
+
+# ---------------------------------------------------------------------------
+# ChaproNet Experience database (Phase 2: work-experience matching)
+#
+# Every record here is entered by hand by ChaproNet staff describing real
+# past projects. Nothing here is ever AI-generated -- the AI only picks
+# which existing record (if any) is most relevant to a new lead.
+# ---------------------------------------------------------------------------
+EXPERIENCE_FIELDS = [
+    "project_type", "building_type", "services_performed", "num_cameras",
+    "num_doors", "num_data_drops", "networking_scope", "av_scope",
+    "approx_project_size", "description",
+]
+
+
+def _experience_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chapronet_experience (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_type TEXT DEFAULT '',
+            building_type TEXT DEFAULT '',
+            services_performed TEXT DEFAULT '',
+            num_cameras TEXT DEFAULT '',
+            num_doors TEXT DEFAULT '',
+            num_data_drops TEXT DEFAULT '',
+            networking_scope TEXT DEFAULT '',
+            av_scope TEXT DEFAULT '',
+            approx_project_size TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    return conn
+
+
+def load_experience() -> pd.DataFrame:
+    with _experience_db() as conn:
+        rows = conn.execute("SELECT * FROM chapronet_experience ORDER BY id DESC").fetchall()
+        cols = [d[0] for d in conn.execute("SELECT * FROM chapronet_experience LIMIT 0").description]
+    return pd.DataFrame(rows, columns=cols)
+
+
+def save_experience_record(values: dict[str, Any], record_id: int | None = None) -> None:
+    clean = {k: str(v or "") for k, v in values.items() if k in EXPERIENCE_FIELDS}
+    now = datetime.now().isoformat(timespec="seconds")
+    with _experience_db() as conn:
+        if record_id is None:
+            fields = list(clean.keys()) + ["created_at", "updated_at"]
+            params = list(clean.values()) + [now, now]
+            placeholders = ",".join("?" for _ in fields)
+            conn.execute(
+                f"INSERT INTO chapronet_experience ({','.join(fields)}) VALUES ({placeholders})",
+                params,
+            )
+        else:
+            fields = list(clean.keys()) + ["updated_at"]
+            params = list(clean.values()) + [now, record_id]
+            assignments = ",".join(f"{f}=?" for f in fields)
+            conn.execute(
+                f"UPDATE chapronet_experience SET {assignments} WHERE id=?",
+                params,
+            )
+        conn.commit()
+
+
+def delete_experience_record(record_id: int) -> None:
+    with _experience_db() as conn:
+        conn.execute("DELETE FROM chapronet_experience WHERE id=?", (record_id,))
+        conn.commit()
+
+
+def match_experience(
+    building_type: str,
+    recommended_services: list[str],
+    permit_type: str = "",
+) -> dict[str, Any] | None:
+    """Return the single most relevant ChaproNet Experience record for a new
+    lead, or None if nothing is actually relevant enough to reference.
+    Purely a deterministic overlap score -- never fabricates a match.
+
+    A record only qualifies if it shares the building type OR at least one
+    actual recommended service with the lead -- a generic project-type
+    match alone (e.g. both happen to be "renovation") is too weak a signal
+    on its own and is only used to break ties between qualifying records.
+    """
+    experience = load_experience()
+    if experience.empty:
+        return None
+
+    building_type = clean_text(building_type).lower()
+    permit_type = clean_text(permit_type).lower()
+    wanted_services = {s.strip().lower() for s in recommended_services if s.strip()}
+
+    best_row = None
+    best_score = 0
+    for _, row in experience.iterrows():
+        row_building = clean_text(row.get("building_type", "")).lower()
+        row_project = clean_text(row.get("project_type", "")).lower()
+        row_services = {
+            s.strip().lower()
+            for s in clean_text(row.get("services_performed", "")).split(",")
+            if s.strip()
+        }
+
+        building_match = bool(row_building) and (row_building in building_type or building_type in row_building)
+        service_overlap = wanted_services & row_services
+        if not building_match and not service_overlap:
+            continue  # too weak a signal to ever qualify, regardless of project_type
+
+        score = (3 if building_match else 0) + 2 * len(service_overlap)
+        if row_project and (row_project in permit_type or permit_type in row_project):
+            score += 1  # tiebreaker only
+
+        if score > best_score:
+            best_score = score
+            best_row = row
+
+    if best_row is None:
+        return None
+
+    return {
+        "project_type": clean_text(best_row.get("project_type", "")),
+        "building_type": clean_text(best_row.get("building_type", "")),
+        "services_performed": clean_text(best_row.get("services_performed", "")),
+        "num_cameras": clean_text(best_row.get("num_cameras", "")),
+        "num_doors": clean_text(best_row.get("num_doors", "")),
+        "num_data_drops": clean_text(best_row.get("num_data_drops", "")),
+        "networking_scope": clean_text(best_row.get("networking_scope", "")),
+        "av_scope": clean_text(best_row.get("av_scope", "")),
+        "approx_project_size": clean_text(best_row.get("approx_project_size", "")),
+        "description": clean_text(best_row.get("description", "")),
+    }
