@@ -38,6 +38,7 @@ from dashboard_common import (
     lead_status_badge,
     ai_lead_score,
     match_experience,
+    build_mailto_link,
     LEAD_STAGES,
 )
 
@@ -442,7 +443,10 @@ def render_lead_detail_panel(row: pd.Series, permit_no: str) -> None:
             has_draft = bool(draft_body)
 
             if has_draft:
-                status_label = {"approved": "✅ Approved for sending"}.get(draft_status, "📝 Draft (not yet approved)")
+                status_label = {
+                    "approved": "✅ Approved for sending",
+                    "sent": "📨 Sent",
+                }.get(draft_status, "📝 Draft (not yet approved)")
                 st.caption(status_label)
 
             gen_col, regen_col = st.columns(2)
@@ -491,7 +495,7 @@ def render_lead_detail_panel(row: pd.Series, permit_no: str) -> None:
                         "outreach_email_status": "draft",
                         "outreach_email_updated_at": datetime.now().isoformat(timespec="seconds"),
                     }
-                    if str(row.get("status", "New Lead") or "New Lead") in ("New Lead", "Qualified"):
+                    if str(row.get("status", "New Lead") or "New Lead") in ("New Lead", "New", "Qualified"):
                         updates["status"] = "Email Drafted"
                     save_tracking(permit_no, updates)
                     if experience_match:
@@ -534,10 +538,54 @@ def render_lead_detail_panel(row: pd.Series, permit_no: str) -> None:
 
                 st.caption("Copy-ready version:")
                 st.code(f"Subject: {draft_subject}\n\n{draft_body}", language=None)
-                st.caption(
-                    "This email is never sent automatically. Sending is a manual step you take "
-                    "yourself once approved."
-                )
+
+                if draft_status in ("approved", "sent"):
+                    st.divider()
+                    recipient_email = clean_text(row.get("email", ""))
+                    if not recipient_email:
+                        st.warning(
+                            "Add the contact's email under Contact Information above before sending."
+                        )
+                    else:
+                        send_col, confirm_col = st.columns(2)
+                        send_col.link_button(
+                            "📧 Open in Email Client",
+                            build_mailto_link(recipient_email, draft_subject, draft_body),
+                            use_container_width=True,
+                            type="primary",
+                        )
+                        if draft_status == "sent":
+                            sent_at = clean_text(row.get("outreach_email_sent_at", ""))
+                            confirm_col.success(f"✅ Marked sent{' on ' + sent_at.split('T')[0] if sent_at else ''}")
+                        else:
+                            if confirm_col.button(
+                                "✅ I sent this email",
+                                key=f"mark-sent-{permit_no}",
+                                use_container_width=True,
+                            ):
+                                today = datetime.now().strftime("%Y-%m-%d")
+                                sent_updates = {
+                                    "outreach_email_status": "sent",
+                                    "outreach_email_sent_at": datetime.now().isoformat(timespec="seconds"),
+                                    "last_contact_date": today,
+                                }
+                                if str(row.get("status", "New Lead") or "New Lead") in (
+                                    "New Lead", "New", "Qualified", "Email Drafted",
+                                ):
+                                    sent_updates["status"] = "Contacted"
+                                save_tracking(permit_no, sent_updates)
+                                st.success("Marked as sent and moved to Contacted.")
+                                st.rerun()
+                    st.caption(
+                        "Opening in your email client does not send anything by itself -- this app "
+                        "never sends email on its own. Click \"I sent this email\" only after you've "
+                        "actually hit send yourself."
+                    )
+                else:
+                    st.caption(
+                        "This email is never sent automatically. Approve it above to unlock sending "
+                        "it from your own email client."
+                    )
 
         with st.container(border=True):
             st.markdown("#### 🔧 Jobber Actions")

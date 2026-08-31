@@ -38,6 +38,31 @@ def render() -> None:
         })
         st.dataframe(table, use_container_width=True, hide_index=True)
 
+    wl1, wl2 = st.columns(2)
+    with wl1:
+        with st.container(border=True):
+            st.markdown("#### Win/Loss")
+            won = int((df["status"] == "Won").sum())
+            lost = int((df["status"] == "Lost").sum())
+            closed = won + lost
+            win_rate = f"{won / closed:.0%}" if closed else "No closed leads yet"
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Won", f"{won:,}")
+            c2.metric("Lost", f"{lost:,}")
+            c3.metric("Win rate", win_rate)
+            st.caption(money(df.loc[df["status"] == "Won", "reported_cost"].fillna(0).sum()) + " in reported value from Won leads.")
+
+    with wl2:
+        with st.container(border=True):
+            st.markdown("#### Outreach Activity")
+            email_status = df.get("outreach_email_status", pd.Series(dtype=str)).fillna("")
+            e1, e2, e3 = st.columns(3)
+            e1.metric("Drafted", f"{int((email_status == 'draft').sum()):,}")
+            e2.metric("Approved", f"{int((email_status == 'approved').sum()):,}")
+            e3.metric("Sent", f"{int((email_status == 'sent').sum()):,}")
+            has_contact = int((df.get("contact_name", pd.Series(dtype=str)).fillna("").str.strip() != "").sum())
+            st.caption(f"{has_contact:,} leads have a confirmed contact name on file.")
+
     col1, col2 = st.columns(2)
     with col1:
         with st.container(border=True):

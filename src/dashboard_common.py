@@ -17,6 +17,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
@@ -122,6 +123,7 @@ def db() -> sqlite3.Connection:
             outreach_email_body TEXT DEFAULT '',
             outreach_email_status TEXT DEFAULT '',
             outreach_email_updated_at TEXT DEFAULT '',
+            outreach_email_sent_at TEXT DEFAULT '',
             updated_at TEXT NOT NULL
         )
         """
@@ -144,6 +146,7 @@ def db() -> sqlite3.Connection:
         "outreach_email_body",
         "outreach_email_status",
         "outreach_email_updated_at",
+        "outreach_email_sent_at",
     ]:
         if column not in existing_columns:
             conn.execute(
@@ -159,7 +162,7 @@ TRACKED_FIELDS = [
     "jobber_request_id", "confluence_url", "ai_analysis_json", "ai_updated_at",
     "contact_name", "contact_role", "contact_website", "best_contact_type",
     "last_contact_date", "outreach_email_subject", "outreach_email_body",
-    "outreach_email_status", "outreach_email_updated_at",
+    "outreach_email_status", "outreach_email_updated_at", "outreach_email_sent_at",
 ]
 
 
@@ -257,6 +260,15 @@ def confluence_page_id_from_url(url: str) -> str:
         return match.group(1)
     match = re.search(r"[?&]pageId=(\d+)", text)
     return match.group(1) if match else ""
+
+
+def build_mailto_link(to_email: str, subject: str, body: str) -> str:
+    """A mailto: link that opens the viewer's own email client with the
+    draft pre-filled. Nothing is ever sent from this app -- the user's own
+    mail client does the actual sending, under their own control.
+    """
+    params = f"subject={quote(subject)}&body={quote(body)}"
+    return f"mailto:{quote(to_email)}?{params}"
 
 
 def run_permit_refresh() -> tuple[bool, str]:
