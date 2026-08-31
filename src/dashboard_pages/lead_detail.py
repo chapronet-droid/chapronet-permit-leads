@@ -18,11 +18,7 @@ import streamlit as st
 from jobber_integration import JobberClient, JobberError
 from confluence_integration import ConfluenceClient, ConfluenceError
 from ai_intelligence import AIIntelligenceClient, AIIntelligenceError
-from company_research import (
-    CompanyResearchClient,
-    CompanyResearchError,
-    extract_company_candidates,
-)
+from company_research import CompanyResearchClient, CompanyResearchError
 from outreach import OutreachClient, OutreachError
 
 from dashboard_common import (
@@ -40,6 +36,7 @@ from dashboard_common import (
     match_experience,
     build_mailto_link,
     LEAD_STAGES,
+    extract_company_candidates,
 )
 
 CONTACT_TYPES = ["Owner", "General Contractor", "Developer", "Property Manager", "Other"]

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import streamlit as st
 
-from ai_intelligence import CHAPRONET_SERVICES
 from dashboard_common import (
     page_header,
     empty_state,
@@ -19,6 +18,7 @@ from dashboard_common import (
     save_experience_record,
     delete_experience_record,
     clean_text,
+    CHAPRONET_SERVICES,
 )
 
 
