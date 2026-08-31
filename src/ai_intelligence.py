@@ -71,6 +71,8 @@ class AIIntelligenceClient:
             raise AIIntelligenceError("The AI response was not a JSON object.")
         return data
 
+    CONTACT_TYPES = ("Owner", "General Contractor", "Developer", "Property Manager", "Other")
+
     @staticmethod
     def _validate(data: dict[str, Any]) -> dict[str, Any]:
         required = {
@@ -79,6 +81,7 @@ class AIIntelligenceClient:
             "building_type": "Unknown",
             "construction_stage": "Unknown",
             "best_first_contact": "Research needed",
+            "best_contact_type": "Other",
             "sales_angle": "",
             "estimated_revenue_low": 0,
             "estimated_revenue_high": 0,
@@ -112,6 +115,9 @@ class AIIntelligenceClient:
                 value = [str(value)] if value else []
             result[field] = [str(item).strip() for item in value if str(item).strip()][:8]
 
+        if str(result.get("best_contact_type")) not in AIIntelligenceClient.CONTACT_TYPES:
+            result["best_contact_type"] = "Other"
+
         return result
 
     def analyze_lead(
@@ -131,25 +137,47 @@ class AIIntelligenceClient:
         instructions = """
 You are a commercial low-voltage sales engineer for ChaproNet, a Chicago security
 and technology integrator. Analyze public building-permit information and produce
-a conservative sales-opportunity assessment.
+a conservative sales-opportunity assessment (the "Lead Score" for this permit).
 
-ChaproNet services include CCTV, access control, video intercom, structured
-cabling, fiber, networking, Wi-Fi, racks/UPS, and commercial audio/video.
+ChaproNet's services -- only recommend from this exact list, and only the ones
+that plausibly apply to this specific permit's description and building type:
+- CCTV / surveillance
+- Access control
+- Video intercoms
+- Structured cabling
+- Cat5e/Cat6 data cabling
+- Commercial Wi-Fi
+- Networking
+- PoE infrastructure
+- Audio/visual systems
+- TV/display installation
+
+Weight the opportunity_score higher for project types most likely to need this
+work: commercial renovations, new construction, restaurants, retail, offices,
+multifamily/apartment buildings, and hospitality. Weight it lower for projects
+unlikely to need low-voltage systems (e.g. pure roofing, tuckpointing, signage-only,
+minor residential repairs) even if the dollar value is high.
+
+Based on the permit_contacts text (which may label OWNER, CONTRACTOR, ARCHITECT,
+EXPEDITOR, etc.), classify best_contact_type as exactly one of: Owner,
+General Contractor, Developer, Property Manager, Other. This is a role
+classification only -- never invent a specific person's name, phone, or email.
 
 Do not invent owner names, contractor names, contact details, building size, or
 equipment quantities when they are not provided. Distinguish facts from
 assumptions. Revenue estimates are preliminary sales ranges, not quotations.
 
 Return only one valid JSON object with these exact fields:
-opportunity_score: integer 0-100
+opportunity_score: integer 0-100 (this is the Lead Score)
 confidence: integer 0-100
 building_type: string
 construction_stage: string
-best_first_contact: string
+best_first_contact: string (a short description, e.g. "General Contractor listed on the permit")
+best_contact_type: one of Owner, General Contractor, Developer, Property Manager, Other
 sales_angle: string
 estimated_revenue_low: integer
 estimated_revenue_high: integer
-recommended_services: array of concise strings
+recommended_services: array of strings, each exactly one of the ChaproNet services listed above
 next_actions: array of concise strings
 risks: array of concise strings
 """

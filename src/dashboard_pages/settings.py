@@ -7,13 +7,14 @@ status" logic that used to live in the sidebar of the single-page dashboard
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 import streamlit as st
 
 from jobber_integration import JobberClient
 from confluence_integration import ConfluenceClient
-from ai_intelligence import AIIntelligenceClient
+from ai_intelligence import AIIntelligenceClient, AIIntelligenceError
 from company_research import CompanyResearchClient
 
 from dashboard_common import (
@@ -23,6 +24,10 @@ from dashboard_common import (
     db,
     page_header,
     run_permit_refresh,
+    load_leads,
+    save_tracking,
+    clean_text,
+    ai_lead_score,
 )
 
 
@@ -94,6 +99,65 @@ def render() -> None:
         except Exception as exc:
             st.write("🟡 Company research not configured")
             st.caption(str(exc))
+
+    with st.container(border=True):
+        st.markdown("#### AI Lead Analysis")
+        df = load_leads()
+        unanalyzed = df[df.apply(ai_lead_score, axis=1).isna()] if not df.empty else df
+        st.write(f"**{len(unanalyzed):,}** of **{len(df):,}** permits have not been AI-analyzed yet.")
+        st.caption(
+            "Analyzing a permit makes one OpenAI call and caches the result (Lead Score, "
+            "recommended services, best contact type) so it's never re-analyzed automatically. "
+            "This can take a while and uses your OpenAI quota."
+        )
+        confirm_batch = st.checkbox(
+            f"I understand this will make up to {len(unanalyzed):,} OpenAI API calls.",
+            key="confirm-batch-ai",
+            disabled=unanalyzed.empty,
+        )
+        if st.button(
+            "🤖 Analyze all unanalyzed permits",
+            use_container_width=True,
+            type="primary",
+            disabled=unanalyzed.empty or not confirm_batch,
+        ):
+            try:
+                ai_client = AIIntelligenceClient(PROJECT_ROOT)
+            except Exception as exc:
+                st.error(f"AI intelligence is not configured: {exc}")
+            else:
+                progress = st.progress(0.0, text="Starting...")
+                succeeded, failed = 0, 0
+                total = len(unanalyzed)
+                for i, (_, row) in enumerate(unanalyzed.iterrows(), start=1):
+                    permit_no = str(row.get("permit_number", ""))
+                    try:
+                        result = ai_client.analyze_lead(
+                            permit_number=permit_no,
+                            address=clean_text(row.get("address", "")),
+                            permit_type=clean_text(row.get("permit_type", "")),
+                            description=clean_text(row.get("work_description", "")),
+                            reported_cost=row.get("reported_cost"),
+                            existing_score=row.get("lead_score"),
+                            recommended_services=clean_text(row.get("recommended_services", "")),
+                            permit_contacts=clean_text(row.get("permit_contacts", "")),
+                        )
+                        save_tracking(
+                            permit_no,
+                            {
+                                "ai_analysis_json": json.dumps(result),
+                                "ai_updated_at": datetime.now().isoformat(timespec="seconds"),
+                            },
+                        )
+                        succeeded += 1
+                    except AIIntelligenceError:
+                        failed += 1
+                    except Exception:
+                        failed += 1
+                    progress.progress(i / total, text=f"Analyzed {i} of {total} ({succeeded} ok, {failed} failed)")
+                st.cache_data.clear()
+                st.success(f"Batch analysis complete: {succeeded} analyzed, {failed} failed.")
+                st.rerun()
 
     with st.container(border=True):
         with st.expander("Repair local Jobber status"):

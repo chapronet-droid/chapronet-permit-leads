@@ -94,7 +94,7 @@ def db() -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS lead_tracking (
             permit_number TEXT PRIMARY KEY,
-            status TEXT NOT NULL DEFAULT 'New',
+            status TEXT NOT NULL DEFAULT 'New Lead',
             assigned_to TEXT DEFAULT '',
             phone TEXT DEFAULT '',
             email TEXT DEFAULT '',
@@ -107,6 +107,15 @@ def db() -> sqlite3.Connection:
             confluence_url TEXT DEFAULT '',
             ai_analysis_json TEXT DEFAULT '',
             ai_updated_at TEXT DEFAULT '',
+            contact_name TEXT DEFAULT '',
+            contact_role TEXT DEFAULT '',
+            contact_website TEXT DEFAULT '',
+            best_contact_type TEXT DEFAULT '',
+            last_contact_date TEXT DEFAULT '',
+            outreach_email_subject TEXT DEFAULT '',
+            outreach_email_body TEXT DEFAULT '',
+            outreach_email_status TEXT DEFAULT '',
+            outreach_email_updated_at TEXT DEFAULT '',
             updated_at TEXT NOT NULL
         )
         """
@@ -120,6 +129,15 @@ def db() -> sqlite3.Connection:
         "jobber_request_id",
         "ai_analysis_json",
         "ai_updated_at",
+        "contact_name",
+        "contact_role",
+        "contact_website",
+        "best_contact_type",
+        "last_contact_date",
+        "outreach_email_subject",
+        "outreach_email_body",
+        "outreach_email_status",
+        "outreach_email_updated_at",
     ]:
         if column not in existing_columns:
             conn.execute(
@@ -127,6 +145,16 @@ def db() -> sqlite3.Connection:
             )
     conn.commit()
     return conn
+
+
+TRACKED_FIELDS = [
+    "status", "assigned_to", "phone", "email", "company",
+    "next_follow_up", "notes", "jobber_url", "jobber_client_id",
+    "jobber_request_id", "confluence_url", "ai_analysis_json", "ai_updated_at",
+    "contact_name", "contact_role", "contact_website", "best_contact_type",
+    "last_contact_date", "outreach_email_subject", "outreach_email_body",
+    "outreach_email_status", "outreach_email_updated_at",
+]
 
 
 def load_tracking() -> pd.DataFrame:
@@ -137,12 +165,16 @@ def load_tracking() -> pd.DataFrame:
 
 
 def save_tracking(permit_number: str, values: dict[str, Any]) -> None:
-    permitted = {
-        "status", "assigned_to", "phone", "email", "company",
-        "next_follow_up", "notes", "jobber_url", "jobber_client_id",
-        "jobber_request_id", "confluence_url", "ai_analysis_json", "ai_updated_at"
-    }
+    permitted = set(TRACKED_FIELDS)
     clean = {k: str(v or "") for k, v in values.items() if k in permitted}
+    with db() as conn:
+        already_tracked = conn.execute(
+            "SELECT 1 FROM lead_tracking WHERE permit_number = ?", (permit_number,)
+        ).fetchone()
+    if not already_tracked and "status" not in clean:
+        # Don't rely on the SQL column default here -- it reflects whatever
+        # value was baked in when this database file was first created.
+        clean["status"] = "New Lead"
     fields = ["permit_number"] + list(clean.keys()) + ["updated_at"]
     params = [permit_number] + list(clean.values()) + [datetime.now().isoformat(timespec="seconds")]
     placeholders = ",".join("?" for _ in fields)
@@ -172,19 +204,22 @@ def load_leads() -> pd.DataFrame:
     tracking = load_tracking()
     if not tracking.empty:
         df = df.merge(tracking, on="permit_number", how="left", suffixes=("", "_tracked"))
-        for col in [
-            "status", "assigned_to", "phone", "email", "company",
-            "next_follow_up", "notes", "jobber_url", "jobber_client_id",
-            "jobber_request_id", "confluence_url", "ai_analysis_json", "ai_updated_at"
-        ]:
+        for col in TRACKED_FIELDS:
             tracked = f"{col}_tracked"
             if tracked in df.columns:
+                # col existed in both the CSV and the tracking table (e.g. "company"):
+                # prefer the tracked value, falling back to the CSV's own value.
                 base = df[col] if col in df.columns else ""
                 df[col] = df[tracked].where(df[tracked].fillna("") != "", base)
                 df.drop(columns=[tracked], inplace=True)
+            elif col in df.columns:
+                # col came only from tracking (e.g. "contact_name"): permits with
+                # no tracking row get NaN from the left join, not "". Without this,
+                # str(nan).strip() becomes the truthy string "nan".
+                df[col] = df[col].fillna("")
     if "status" not in df.columns:
-        df["status"] = "New"
-    df["status"] = df["status"].replace("", "New").fillna("New")
+        df["status"] = "New Lead"
+    df["status"] = df["status"].replace("", "New Lead").fillna("New Lead")
     return df
 
 
@@ -463,6 +498,52 @@ def _badge(label: str, color: str) -> str:
     return f'<span class="badge badge-{color}">{html.escape(str(label))}</span>'
 
 
+def ai_lead_score(row: pd.Series) -> int | None:
+    """The AI-computed Lead Score (0-100) for this permit, if it has been
+    analyzed yet. Returns None when no AI analysis is cached -- callers must
+    handle that case explicitly rather than treating it as a score of 0.
+    """
+    stored = clean_text(row.get("ai_analysis_json", ""))
+    if not stored:
+        return None
+    try:
+        data = json.loads(stored)
+        return max(0, min(100, int(data.get("opportunity_score", 0))))
+    except Exception:
+        return None
+
+
+def lead_status_badge(row: pd.Series) -> str:
+    """The 🔥/🟢/🟡/⚪ Lead Status badge, driven by the AI Lead Score.
+    Shows a neutral 'Not yet analyzed' badge until AI analysis has run.
+    """
+    score = ai_lead_score(row)
+    if score is None:
+        return _badge("Not yet analyzed", "slate")
+    if score >= 80:
+        return _badge(f"🔥 High Priority ({score})", "red")
+    if score >= 60:
+        return _badge(f"🟢 Good Lead ({score})", "green")
+    if score >= 40:
+        return _badge(f"🟡 Possible Lead ({score})", "amber")
+    return _badge(f"⚪ Low Priority ({score})", "slate")
+
+
+def lead_status_label(row: pd.Series) -> str:
+    """Plain-text (emoji-prefixed) version of lead_status_badge for use in
+    st.dataframe tables, which don't render the HTML badge."""
+    score = ai_lead_score(row)
+    if score is None:
+        return "⬜ Not analyzed"
+    if score >= 80:
+        return f"🔥 High Priority ({score})"
+    if score >= 60:
+        return f"🟢 Good Lead ({score})"
+    if score >= 40:
+        return f"🟡 Possible Lead ({score})"
+    return f"⚪ Low Priority ({score})"
+
+
 def priority_badge(priority: str) -> str:
     priority = clean_text(priority) or "Research"
     mapping = {
@@ -475,19 +556,28 @@ def priority_badge(priority: str) -> str:
     return _badge(label, color)
 
 
-def crm_status_badge(status: str) -> str:
-    status = clean_text(status) or "New"
+def _crm_status_color(status: str) -> str:
     won_lost = {"Won": "green", "Lost": "red"}
-    active = {"Contacted", "Follow-Up", "Site Visit", "Quote Sent", "Ready to Contact"}
+    active = {
+        "Qualified", "Email Drafted", "Contacted", "Meeting Scheduled",
+        # Legacy stage names from before the CRM pipeline stages were added.
+        "Ready to Contact", "Site Visit",
+    }
+    needs_attention = {"Follow-Up Needed", "Estimate Requested", "Estimate Sent", "Follow-Up", "Quote Sent"}
     if status in won_lost:
-        color = won_lost[status]
-    elif status in active:
-        color = "blue"
-    elif status == "New":
-        color = "slate"
-    else:
-        color = "amber"
-    return _badge(status, color)
+        return won_lost[status]
+    if status in active:
+        return "blue"
+    if status in needs_attention:
+        return "amber"
+    if status in ("New Lead", "New"):
+        return "slate"
+    return "amber"
+
+
+def crm_status_badge(status: str) -> str:
+    status = clean_text(status) or "New Lead"
+    return _badge(status, _crm_status_color(status))
 
 
 def permit_status_badge(permit_status: str) -> str:
@@ -533,19 +623,12 @@ def permit_status_emoji_label(permit_status: str) -> str:
     return mapping.get(value.upper(), f"⚪ {value}")
 
 
+_STATUS_DOT = {"green": "🟢", "red": "🔴", "blue": "🔵", "amber": "🟡", "slate": "⚪"}
+
+
 def crm_status_emoji_label(status: str) -> str:
-    status = clean_text(status) or "New"
-    won_lost = {"Won": "🟢", "Lost": "🔴"}
-    active = {"Contacted", "Follow-Up", "Site Visit", "Quote Sent", "Ready to Contact"}
-    if status in won_lost:
-        dot = won_lost[status]
-    elif status in active:
-        dot = "🔵"
-    elif status == "New":
-        dot = "⚪"
-    else:
-        dot = "🟡"
-    return f"{dot} {status}"
+    status = clean_text(status) or "New Lead"
+    return f"{_STATUS_DOT[_crm_status_color(status)]} {status}"
 
 
 def compute_lead_tags(row: pd.Series) -> list[tuple[str, str]]:

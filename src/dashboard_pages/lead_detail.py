@@ -23,6 +23,7 @@ from company_research import (
     CompanyResearchError,
     extract_company_candidates,
 )
+from outreach import OutreachClient, OutreachError
 
 from dashboard_common import (
     PROJECT_ROOT,
@@ -34,7 +35,15 @@ from dashboard_common import (
     crm_status_badge,
     compute_lead_tags,
     render_tags_html,
+    lead_status_badge,
+    ai_lead_score,
 )
+
+LEAD_STAGES = [
+    "New Lead", "Qualified", "Email Drafted", "Contacted", "Follow-Up Needed",
+    "Meeting Scheduled", "Estimate Requested", "Estimate Sent", "Won", "Lost",
+]
+CONTACT_TYPES = ["Owner", "General Contractor", "Developer", "Property Manager", "Other"]
 
 
 def render_lead_detail_panel(row: pd.Series, permit_no: str) -> None:
@@ -44,8 +53,9 @@ def render_lead_detail_panel(row: pd.Series, permit_no: str) -> None:
         with st.container(border=True):
             st.markdown(f"### {row.get('address', 'Unknown address')}")
             badges = (
-                f'<span class="badge badge-blue">Score {int(row.get("lead_score", 0) or 0)}/100</span> '
+                f'<span class="badge badge-blue">Base Score {int(row.get("lead_score", 0) or 0)}/100</span> '
                 f'{priority_badge(row.get("priority", ""))} '
+                f'{lead_status_badge(row)} '
                 f'{crm_status_badge(row.get("status", ""))}'
             )
             st.markdown(badges, unsafe_allow_html=True)
@@ -92,12 +102,13 @@ def render_lead_detail_panel(row: pd.Series, permit_no: str) -> None:
                 st.write(f"**Building type:** {ai_result.get('building_type', 'Unknown')}")
                 st.write(f"**Construction stage:** {ai_result.get('construction_stage', 'Unknown')}")
                 st.write(f"**Best first contact:** {ai_result.get('best_first_contact', 'Research needed')}")
+                st.write(f"**Best contact type:** {ai_result.get('best_contact_type', 'Other')}")
                 st.write(f"**Sales angle:** {ai_result.get('sales_angle', '')}")
 
                 services = ai_result.get("recommended_services") or []
                 if services:
-                    st.write("**Recommended systems**")
-                    st.markdown("\n".join(f"- {service}" for service in services))
+                    st.write("**Recommended Services**")
+                    st.markdown(render_tags_html([(s, "blue") for s in services]), unsafe_allow_html=True)
 
                 next_actions = ai_result.get("next_actions") or []
                 if next_actions:
@@ -336,25 +347,53 @@ def render_lead_detail_panel(row: pd.Series, permit_no: str) -> None:
 
     with right:
         with st.container(border=True):
-            st.markdown("#### 📋 Sales Tracking")
-            status_options = [
-                "New", "Researching", "Ready to Contact", "Contacted",
-                "Follow-Up", "Site Visit", "Quote Sent", "Won", "Lost"
-            ]
-            current_status = str(row.get("status", "New") or "New")
+            st.markdown("#### 📋 Sales Tracking & Contact Info")
+            status_options = list(LEAD_STAGES)
+            current_status = str(row.get("status", "New Lead") or "New Lead")
             if current_status not in status_options:
                 status_options.insert(0, current_status)
+
+            ai_suggested_contact_type = ""
+            if stored_ai:
+                try:
+                    ai_suggested_contact_type = (json.loads(stored_ai) or {}).get("best_contact_type", "")
+                except Exception:
+                    ai_suggested_contact_type = ""
+            contact_type_options = list(CONTACT_TYPES)
+            saved_contact_type = clean_text(row.get("best_contact_type", "")) or ai_suggested_contact_type or "Other"
+            if saved_contact_type not in contact_type_options:
+                saved_contact_type = "Other"
+
             with st.form(f"tracking-{permit_no}"):
                 status = st.selectbox("Status", status_options, index=status_options.index(current_status))
-                assigned_to = st.text_input("Assigned to", value=clean_text(row.get("assigned_to", "")))
-                company = st.text_input("Company / owner", value=clean_text(row.get("company", "")))
-                phone = st.text_input("Phone", value=clean_text(row.get("phone", "")))
-                email = st.text_input("Email", value=clean_text(row.get("email", "")))
-                next_follow_up = st.text_input(
+
+                st.markdown("**Contact Information**")
+                st.caption("Only enter information you've actually confirmed -- fields left blank are shown as \"Not found\" everywhere else in the dashboard.")
+                contact_name = st.text_input("Contact Name", value=clean_text(row.get("contact_name", "")), placeholder="Not found")
+                company = st.text_input("Company", value=clean_text(row.get("company", "")), placeholder="Not found")
+                contact_role = st.text_input("Role", value=clean_text(row.get("contact_role", "")), placeholder="Not found")
+                phone = st.text_input("Phone", value=clean_text(row.get("phone", "")), placeholder="Not found")
+                email = st.text_input("Email", value=clean_text(row.get("email", "")), placeholder="Not found")
+                contact_website = st.text_input("Website", value=clean_text(row.get("contact_website", "")), placeholder="Not found")
+                best_contact_type = st.selectbox(
+                    "Best person to contact",
+                    contact_type_options,
+                    index=contact_type_options.index(saved_contact_type),
+                    help="Defaults to the AI's suggestion once this permit has been analyzed; override anytime.",
+                )
+
+                st.markdown("**Follow-Up**")
+                fc1, fc2 = st.columns(2)
+                last_contact_date = fc1.text_input(
+                    "Last contact date (YYYY-MM-DD)",
+                    value=clean_text(row.get("last_contact_date", "")),
+                )
+                next_follow_up = fc2.text_input(
                     "Next follow-up (YYYY-MM-DD)",
                     value=clean_text(row.get("next_follow_up", ""))
                 )
-                notes = st.text_area("Notes", value=clean_text(row.get("notes", "")), height=120)
+                assigned_to = st.text_input("Assigned to", value=clean_text(row.get("assigned_to", "")))
+                notes = st.text_area("Notes", value=clean_text(row.get("notes", "")), height=100)
                 saved = st.form_submit_button("Save lead updates", use_container_width=True, type="primary")
             if saved:
                 save_tracking(
@@ -365,12 +404,114 @@ def render_lead_detail_panel(row: pd.Series, permit_no: str) -> None:
                         "company": company,
                         "phone": phone,
                         "email": email,
+                        "contact_name": contact_name,
+                        "contact_role": contact_role,
+                        "contact_website": contact_website,
+                        "best_contact_type": best_contact_type,
+                        "last_contact_date": last_contact_date,
                         "next_follow_up": next_follow_up,
                         "notes": notes,
                     },
                 )
                 st.success("Lead tracking saved locally.")
                 st.rerun()
+
+        with st.container(border=True):
+            st.markdown("#### ✉️ Outreach Email")
+            if not ai_result:
+                st.caption(
+                    "Tip: run AI Opportunity Intelligence above first for a sharper, more "
+                    "relevant email (it feeds recommended services and building type in). "
+                    "You can still generate one without it."
+                )
+
+            draft_subject = clean_text(row.get("outreach_email_subject", ""))
+            draft_body = clean_text(row.get("outreach_email_body", ""))
+            draft_status = clean_text(row.get("outreach_email_status", ""))
+            has_draft = bool(draft_body)
+
+            if has_draft:
+                status_label = {"approved": "✅ Approved for sending"}.get(draft_status, "📝 Draft (not yet approved)")
+                st.caption(status_label)
+
+            gen_col, regen_col = st.columns(2)
+            generate_clicked = gen_col.button(
+                "✨ Generate Outreach Email" if not has_draft else "✨ Generate New Version",
+                key=f"generate-email-{permit_no}",
+                type="primary" if not has_draft else "secondary",
+                use_container_width=True,
+            )
+            regenerate_note = ""
+            if has_draft:
+                regenerate_note = regen_col.text_input(
+                    "What should change? (optional)",
+                    key=f"regen-note-{permit_no}",
+                    placeholder="e.g. shorter, more casual, mention Wi-Fi",
+                    label_visibility="collapsed",
+                )
+
+            if generate_clicked:
+                try:
+                    outreach_client = OutreachClient(PROJECT_ROOT)
+                    services_for_email = (ai_result or {}).get("recommended_services") or []
+                    with st.spinner("Writing a personalized outreach email..."):
+                        email = outreach_client.generate_email(
+                            permit_number=permit_no,
+                            address=clean_text(row.get("address", "")),
+                            permit_type=clean_text(row.get("permit_type", "")),
+                            description=clean_text(row.get("work_description", "")),
+                            building_type=(ai_result or {}).get("building_type", "Unknown"),
+                            recommended_services=services_for_email,
+                            best_contact_type=clean_text(row.get("best_contact_type", "")) or (ai_result or {}).get("best_contact_type", "Other"),
+                            contact_name=clean_text(row.get("contact_name", "")),
+                            contact_company=clean_text(row.get("company", "")),
+                            matched_experience=None,  # wired up in Phase 2
+                            regenerate_note=regenerate_note,
+                        )
+                    updates = {
+                        "outreach_email_subject": email["subject"],
+                        "outreach_email_body": email["body"],
+                        "outreach_email_status": "draft",
+                        "outreach_email_updated_at": datetime.now().isoformat(timespec="seconds"),
+                    }
+                    if str(row.get("status", "New Lead") or "New Lead") in ("New Lead", "Qualified"):
+                        updates["status"] = "Email Drafted"
+                    save_tracking(permit_no, updates)
+                    st.success("Outreach email generated. Review it below before approving.")
+                    st.rerun()
+                except OutreachError as exc:
+                    st.error(f"Outreach email error: {exc}")
+                except Exception as exc:
+                    st.error(f"Unexpected outreach error: {exc}")
+
+            if has_draft:
+                with st.form(f"email-editor-{permit_no}"):
+                    edited_subject = st.text_input("Subject", value=draft_subject)
+                    edited_body = st.text_area("Body", value=draft_body, height=220)
+                    save_col, approve_col = st.columns(2)
+                    save_edits = save_col.form_submit_button("💾 Save Edits", use_container_width=True)
+                    approve = approve_col.form_submit_button(
+                        "✅ Approve for Sending", use_container_width=True, type="primary"
+                    )
+                if save_edits or approve:
+                    save_tracking(
+                        permit_no,
+                        {
+                            "outreach_email_subject": edited_subject,
+                            "outreach_email_body": edited_body,
+                            "outreach_email_status": "approved" if approve else "draft",
+                            "outreach_email_updated_at": datetime.now().isoformat(timespec="seconds"),
+                        },
+                    )
+                    st.success("Approved -- ready to send when you are." if approve else "Draft saved.")
+                    st.rerun()
+
+                st.caption("Copy-ready version:")
+                st.code(f"Subject: {draft_subject}\n\n{draft_body}", language=None)
+                st.caption(
+                    "This email is never sent automatically. Sending is a manual step you take "
+                    "yourself once approved."
+                )
 
         with st.container(border=True):
             st.markdown("#### 🔧 Jobber Actions")

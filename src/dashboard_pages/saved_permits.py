@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from dashboard_common import load_leads, money, page_header, empty_state, paginate, crm_status_emoji_label
+from dashboard_common import load_leads, money, page_header, empty_state, paginate, crm_status_emoji_label, clean_text
 from dashboard_pages.lead_detail import render_lead_picker_and_detail
 
 
@@ -20,10 +20,13 @@ def render() -> None:
         return
 
     def _has_activity(row) -> bool:
-        if str(row.get("status", "New") or "New") != "New":
+        if (clean_text(row.get("status", "New Lead")) or "New Lead") not in ("New Lead", "New"):
             return True
-        for field in ["assigned_to", "notes", "company", "phone", "email"]:
-            if str(row.get(field, "") or "").strip():
+        for field in [
+            "assigned_to", "notes", "company", "phone", "email",
+            "contact_name", "outreach_email_body",
+        ]:
+            if clean_text(row.get(field, "")):
                 return True
         return False
 

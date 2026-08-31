@@ -14,6 +14,7 @@ from dashboard_common import (
     priority_badge,
     render_tags_html,
     compute_lead_tags,
+    ai_lead_score,
 )
 
 
@@ -48,6 +49,32 @@ def render() -> None:
     kpi_card(cols[4], "⭐", "High-Value Projects", f"{high_value:,}", "amber")
     kpi_card(cols[5], "🎯", "Potential Leads", f"{potential_leads:,}", "red")
     st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("#### AI Outreach Pipeline")
+    ai_scores = df.apply(ai_lead_score, axis=1)
+    status = df.get("status", pd.Series(dtype=str)).fillna("")
+    follow_up_due = 0
+    if "next_follow_up" in df.columns:
+        follow_up_dates = pd.to_datetime(df["next_follow_up"], errors="coerce")
+        follow_up_due = int((follow_up_dates.notna() & (follow_up_dates <= today)).sum())
+    emails_approved = int((df.get("outreach_email_status", pd.Series(dtype=str)).fillna("") == "approved").sum())
+
+    st.markdown('<div class="kpi-row">', unsafe_allow_html=True)
+    ocols = st.columns(8)
+    kpi_card(ocols[0], "🆕", "New Leads", f"{int((status == 'New Lead').sum()):,}", "blue")
+    kpi_card(ocols[1], "🔥", "High-Priority Leads", f"{int((ai_scores >= 80).sum()):,}", "red")
+    kpi_card(ocols[2], "🟢", "Good Leads", f"{int(((ai_scores >= 60) & (ai_scores < 80)).sum()):,}", "green")
+    kpi_card(ocols[3], "✉️", "Emails Sent", f"{emails_approved:,}", "blue")
+    kpi_card(ocols[4], "⏰", "Follow-Ups Due", f"{follow_up_due:,}", "amber")
+    kpi_card(ocols[5], "📅", "Meetings Scheduled", f"{int((status == 'Meeting Scheduled').sum()):,}", "blue")
+    kpi_card(ocols[6], "📋", "Estimates Requested", f"{int((status == 'Estimate Requested').sum()):,}", "amber")
+    kpi_card(ocols[7], "🏆", "Won Leads", f"{int((status == 'Won').sum()):,}", "green")
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.caption(
+        "\"Emails Sent\" currently counts emails approved for sending -- automatic send "
+        "tracking is planned for Phase 3. \"High-Priority\"/\"Good Leads\" only count permits "
+        "that have been AI-analyzed; see Settings to batch-analyze the rest."
+    )
 
     left, right = st.columns([1.6, 1])
     with left:

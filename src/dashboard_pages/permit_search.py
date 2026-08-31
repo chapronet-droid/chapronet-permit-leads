@@ -18,8 +18,12 @@ from dashboard_common import (
     priority_emoji_label,
     permit_status_emoji_label,
     crm_status_emoji_label,
+    ai_lead_score,
+    lead_status_label,
 )
 from dashboard_pages.lead_detail import render_lead_picker_and_detail
+
+LEAD_STATUS_OPTIONS = ["🔥 High Priority (80-100)", "🟢 Good Lead (60-79)", "🟡 Possible Lead (40-59)", "⚪ Low Priority (<40)", "⬜ Not analyzed"]
 
 DEFAULTS = {
     "ps_address": "",
@@ -33,7 +37,20 @@ DEFAULTS = {
     "ps_cost_min": 0,
     "ps_cost_max": 0,
     "ps_permit_status": [],
+    "ps_lead_status": [],
 }
+
+
+def _lead_status_bucket(score) -> str:
+    if score is None:
+        return "⬜ Not analyzed"
+    if score >= 80:
+        return "🔥 High Priority (80-100)"
+    if score >= 60:
+        return "🟢 Good Lead (60-79)"
+    if score >= 40:
+        return "🟡 Possible Lead (40-59)"
+    return "⚪ Low Priority (<40)"
 
 
 def _reset_filters() -> None:
@@ -68,6 +85,9 @@ def _apply_criteria(df: pd.DataFrame, criteria: dict) -> pd.DataFrame:
         out = out[out["reported_cost"].fillna(0) <= criteria["cost_max"]]
     if criteria.get("permit_status") and "permit_status" in out.columns:
         out = out[out["permit_status"].isin(criteria["permit_status"])]
+    if criteria.get("lead_status"):
+        buckets = out.apply(ai_lead_score, axis=1).map(_lead_status_bucket)
+        out = out[buckets.isin(criteria["lead_status"])]
     return out
 
 
@@ -113,8 +133,13 @@ def render() -> None:
             cost_min = r3c3.number_input("Min Project Cost ($)", min_value=0, step=10_000, key="ps_cost_min")
             cost_max = r3c4.number_input("Max Project Cost ($) — 0 = no limit", min_value=0, step=10_000, key="ps_cost_max")
 
+            r4c1, r4c2 = st.columns(2)
             status_options = sorted(df["permit_status"].dropna().astype(str).unique().tolist()) if "permit_status" in df else []
-            permit_status = st.multiselect("Permit Status", status_options, key="ps_permit_status")
+            permit_status = r4c1.multiselect("Permit Status", status_options, key="ps_permit_status")
+            lead_status = r4c2.multiselect(
+                "Lead Status (AI)", LEAD_STATUS_OPTIONS, key="ps_lead_status",
+                help="Based on the AI Lead Score. Analyze permits from their detail page or in bulk from Settings.",
+            )
 
             submitted = st.form_submit_button("🔍 Search", type="primary", use_container_width=False)
 
@@ -141,6 +166,7 @@ def render() -> None:
             "cost_min": cost_min,
             "cost_max": cost_max,
             "permit_status": permit_status,
+            "lead_status": lead_status,
         }
 
     criteria = st.session_state.get("permit_search_criteria", {})
@@ -155,13 +181,15 @@ def render() -> None:
     show_cols = [
         c for c in [
             "permit_number", "address", "permit_type", "work_description",
-            "issue_date", "reported_cost", "company", "permit_status", "priority", "status",
-        ] if c in filtered.columns
+            "issue_date", "reported_cost", "company", "permit_status", "priority", "ai_lead_status", "status",
+        ] if c in filtered.columns or c == "ai_lead_status"
     ]
     table_source = filtered.sort_values("lead_score", ascending=False)
     page_df, page, total_pages = paginate(table_source, "ps_page", page_size=15)
 
-    table = page_df[show_cols].copy()
+    table = page_df.copy()
+    table["ai_lead_status"] = table.apply(lead_status_label, axis=1)
+    table = table[show_cols]
     if "issue_date" in table:
         table["issue_date"] = table["issue_date"].dt.strftime("%Y-%m-%d")
     if "reported_cost" in table:
@@ -175,7 +203,8 @@ def render() -> None:
     table = table.rename(columns={
         "permit_number": "Permit Number", "address": "Address", "permit_type": "Permit Type",
         "work_description": "Description", "issue_date": "Issue Date", "reported_cost": "Project Value",
-        "company": "Contractor", "permit_status": "Permit Status", "priority": "Priority", "status": "Status",
+        "company": "Contractor", "permit_status": "Permit Status", "priority": "Priority",
+        "ai_lead_status": "AI Lead Status", "status": "Status",
     })
 
     st.dataframe(table, use_container_width=True, hide_index=True, height=460)
